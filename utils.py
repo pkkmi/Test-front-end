@@ -3,17 +3,27 @@ import random
 import string
 import requests
 import json
+import logging
 from datetime import datetime
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # API URLs
 HUMANIZER_API_URL = os.environ.get("HUMANIZER_API_URL", "https://web-production-3db6c.up.railway.app")
 ADMIN_API_URL = os.environ.get("ADMIN_API_URL", "https://web-production-a776.up.railway.app") 
 AI_DETECTOR_API_URL = os.environ.get("AI_DETECTOR_API_URL", "https://ai-detector-api.example.com")
 
+# These functions are kept for backward compatibility
+# New code should use the backend services directly
 
 def humanize_text(text, user_type="Basic"):
     """
     Call the humanizer API to transform AI text into more human-like text.
+    
+    This function is kept for backward compatibility.
+    New code should use backend.api_service.humanize_text_api instead.
     
     Args:
         text (str): The text to humanize
@@ -22,6 +32,25 @@ def humanize_text(text, user_type="Basic"):
     Returns:
         tuple: (humanized_text, message)
     """
+    try:
+        # Import the backend service (done here to avoid circular imports)
+        from backend.api_service import humanize_text_api
+        
+        # Call the backend service
+        humanized_text, message, status_code = humanize_text_api(text, user_type)
+        
+        # Return in the old format for compatibility
+        if status_code == 200:
+            return humanized_text, message
+        else:
+            return "", message
+    except ImportError:
+        logger.warning("Backend service not available, using legacy implementation")
+        # Fall back to the original implementation
+        return _legacy_humanize_text(text, user_type)
+
+def _legacy_humanize_text(text, user_type="Basic"):
+    """Legacy implementation of humanize_text"""
     # Simulate a response for now
     try:
         # Set strength and variation based on plan
@@ -82,10 +111,22 @@ def humanize_text(text, user_type="Basic"):
         
         # Replace common AI phrases
         replacements = {
-            "In conclusion": random.choice(["To sum up", "All things considered", "When all is said and done", "Looking at the big picture"]),
-            "It is important to note": random.choice(["Keep in mind", "Don't forget", "Remember", "It's worth remembering"]),
-            "In this essay": random.choice(["Here", "In this analysis", "In what follows", "In this discussion"]),
-            "This data suggests": random.choice(["This seems to show", "This points to", "This suggests", "This hints at"]),
+            "In conclusion": random.choice([
+                "To sum up", "All things considered", 
+                "When all is said and done", "Looking at the big picture"
+            ]),
+            "It is important to note": random.choice([
+                "Keep in mind", "Don't forget", 
+                "Remember", "It's worth remembering"
+            ]),
+            "In this essay": random.choice([
+                "Here", "In this analysis", 
+                "In what follows", "In this discussion"
+            ]),
+            "This data suggests": random.choice([
+                "This seems to show", "This points to", 
+                "This suggests", "This hints at"
+            ]),
         }
         
         for old, new in replacements.items():
@@ -101,6 +142,9 @@ def detect_ai_content(text):
     """
     Analyze text to determine if it's likely AI-generated.
     
+    This function is kept for backward compatibility.
+    New code should use backend.api_service.detect_ai_content_api instead.
+    
     Args:
         text (str): The text to analyze
         
@@ -108,8 +152,28 @@ def detect_ai_content(text):
         dict: Detection results
     """
     try:
-        # Simulate detection for now
-        # In a real-world scenario, you'd call a real detection API
+        # Import the backend service (done here to avoid circular imports)
+        from backend.api_service import detect_ai_content_api
+        
+        # Call the backend service
+        result, message, status_code = detect_ai_content_api(text)
+        
+        # Return the result if successful
+        if status_code == 200:
+            return result
+        else:
+            logger.warning(f"Backend detection failed: {message}, using legacy implementation")
+            # Fall back to the original implementation
+            return _legacy_detect_ai_content(text)
+    except ImportError:
+        logger.warning("Backend service not available, using legacy implementation")
+        # Fall back to the original implementation
+        return _legacy_detect_ai_content(text)
+
+def _legacy_detect_ai_content(text):
+    """Legacy implementation of detect_ai_content"""
+    try:
+        # Simulate detection
         text_length = len(text)
         
         # Generate some random scores, but weighted based on text characteristics
@@ -157,6 +221,9 @@ def register_user_to_backend(username, email, phone=None, plan_type=None):
     """
     Register a user to the backend API
     
+    This function is kept for backward compatibility.
+    New code should use backend.users.register_new_user instead.
+    
     Args:
         username (str): Username
         email (str): User's email
@@ -166,6 +233,22 @@ def register_user_to_backend(username, email, phone=None, plan_type=None):
     Returns:
         tuple: (success, message)
     """
+    try:
+        # Import the backend service (done here to avoid circular imports)
+        from backend.api_service import register_user_to_backend_api
+        
+        # Call the backend service
+        success, message, _ = register_user_to_backend_api(username, email, phone, plan_type)
+        
+        # Return in the old format for compatibility
+        return success, message
+    except ImportError:
+        logger.warning("Backend service not available, using legacy implementation")
+        # Fall back to the original implementation
+        return _legacy_register_user_to_backend(username, email, phone, plan_type)
+
+def _legacy_register_user_to_backend(username, email, phone=None, plan_type=None):
+    """Legacy implementation of register_user_to_backend"""
     try:
         # Prepare the data to send to the backend
         registration_data = {
