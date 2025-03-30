@@ -1,153 +1,125 @@
 """
-Authentication and authorization module for Andikar AI.
-This module handles user authentication, session management, and permissions.
+Authentication Module
+Handles user authentication, JWT token generation/validation,
+and user session management
 """
 
-import functools
-import jwt
 import os
-import time
+import jwt
 import datetime
-from flask import request, jsonify, session
-from models import users_db
+from functools import wraps
+from flask import request, jsonify, current_app, g
+from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
 
-# Secret key for JWT tokens
-JWT_SECRET = os.environ.get('JWT_SECRET', os.environ.get('SECRET_KEY', 'andikar_secret_key'))
-# Token validity time in seconds (default: 24 hours)
-TOKEN_EXPIRY = int(os.environ.get('TOKEN_EXPIRY', 86400))
+load_dotenv()
 
-def generate_auth_token(username):
-    """
-    Generate a JWT token for API authentication
-    
-    Args:
-        username (str): Username to encode in the token
-        
-    Returns:
-        str: JWT token
-    """
+# JWT configuration
+JWT_SECRET = os.getenv('JWT_SECRET', 'dev-secret-key')
+JWT_EXPIRATION = int(os.getenv('JWT_EXPIRATION', 3600))  # 1 hour by default
+
+# User session store (replace with database in production)
+active_sessions = {}
+
+def generate_token(user_id, account_type):
+    """Generate a JWT token for the authenticated user"""
     payload = {
-        'username': username,
-        'exp': time.time() + TOKEN_EXPIRY,
-        'iat': time.time()
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=JWT_EXPIRATION),
+        'iat': datetime.datetime.utcnow(),
+        'sub': user_id,
+        'account_type': account_type
     }
-    
-    # Add user plan to the token for permission checking
-    if username in users_db:
-        payload['plan'] = users_db[username]['plan']
-        payload['payment_status'] = users_db[username]['payment_status']
-    
-    token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
-    return token
+    return jwt.encode(
+        payload,
+        JWT_SECRET,
+        algorithm='HS256'
+    )
 
-def verify_auth_token(token):
-    """
-    Verify a JWT token's validity
-    
-    Args:
-        token (str): JWT token
-        
-    Returns:
-        dict: Token payload if valid, None otherwise
-    """
+def decode_token(token):
+    """Decode and validate a JWT token"""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-        
-        # Check if token is expired
-        if payload['exp'] < time.time():
-            return None
-            
+        payload = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=['HS256']
+        )
         return payload
     except jwt.ExpiredSignatureError:
-        return None
+        return None  # Token has expired
     except jwt.InvalidTokenError:
-        return None
+        return None  # Invalid token
 
-def get_current_user():
-    """
-    Get the currently authenticated user from session or API token
-    
-    Returns:
-        dict: User data if authenticated, None otherwise
-    """
-    # First try from session (web interface)
-    if 'user_id' in session:
-        username = session['user_id']
-        if username in users_db:
-            return users_db[username]
-    
-    # Then try from API token (API requests)
-    auth_header = request.headers.get('Authorization')
-    if auth_header and auth_header.startswith('Bearer '):
-        token = auth_header.split(' ')[1]
-        payload = verify_auth_token(token)
+def token_required(f):
+    """Decorator to protect routes with JWT authentication"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization')
         
-        if payload and 'username' in payload:
-            username = payload['username']
-            if username in users_db:
-                return users_db[username]
-    
-    return None
-
-def login_required_api(f):
-    """
-    Decorator for API endpoints that require authentication
-    """
-    @functools.wraps(f)
-    def decorated_function(*args, **kwargs):
-        user = get_current_user()
+        if auth_header:
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
         
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
+        if not token:
+            return jsonify({'message': 'Authentication token is missing'}), 401
             
-        # Add user to request context for the view function
-        request.user = user
-        request.username = next((username for username, data in users_db.items() if data == user), None)
+        payload = decode_token(token)
+        if not payload:
+            return jsonify({'message': 'Invalid or expired token'}), 401
+        
+        # Store user info in g for access in the route function
+        g.user_id = payload['sub']
+        g.account_type = payload['account_type']
         
         return f(*args, **kwargs)
-    return decorated_function
-
-def plan_required(min_plan):
-    """
-    Decorator for API endpoints that require a specific subscription plan
     
-    Args:
-        min_plan (str): Minimum plan required ('Free', 'Basic', 'Premium')
-    """
-    def decorator(f):
-        @functools.wraps(f)
-        @login_required_api
-        def decorated_function(*args, **kwargs):
-            user = request.user
-            plan_hierarchy = {
-                'Free': 0,
-                'Basic': 1,
-                'Premium': 2
-            }
-            
-            # Check if user plan meets the minimum requirement
-            if plan_hierarchy.get(user['plan'], -1) < plan_hierarchy.get(min_plan, 0):
-                return jsonify({'error': f'This endpoint requires {min_plan} plan or higher'}), 403
-                
-            # Check payment status for paid plans
-            if user['plan'] != 'Free' and user['payment_status'] != 'Paid':
-                return jsonify({'error': 'Payment required to access this feature'}), 402
-                
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return decorated
 
-def validate_user_credentials(username, password):
-    """
-    Validate user credentials
+def register_user(username, password, email, account_type='free'):
+    """Register a new user (interface to be implemented with your user database)"""
+    # This is a placeholder. In a real implementation, you would:
+    # 1. Check if username or email already exists
+    # 2. Hash the password
+    # 3. Store in database
+    # 4. Return user ID or error
     
-    Args:
-        username (str): Username
-        password (str): Password
+    hashed_password = generate_password_hash(password)
+    
+    # Example implementation with dummy values
+    user_id = f"user_{username}"
+    
+    # Store in your database here
+    
+    return {
+        'user_id': user_id,
+        'username': username,
+        'email': email,
+        'account_type': account_type
+    }
+
+def authenticate_user(username, password):
+    """Authenticate a user with username and password"""
+    # This is a placeholder. In a real implementation, you would:
+    # 1. Look up the user in your database
+    # 2. Verify the password hash
+    # 3. Return user info or None
+    
+    # Dummy implementation - replace with database lookup
+    # In a real app, fetch the user from database by username
+    # and verify password with check_password_hash()
+    
+    # Example check (replace with actual DB lookup)
+    if username == "admin" and password == "admin":  # This is just for testing!
+        return {
+            'user_id': 'admin_user',
+            'username': 'admin',
+            'account_type': 'admin'
+        }
         
-    Returns:
-        bool: True if credentials are valid
-    """
-    if username in users_db and users_db[username]['password'] == password:
-        return True
-    return False
+    return None
+
+def logout_user(user_id):
+    """Logout a user (invalidate their session)"""
+    if user_id in active_sessions:
+        del active_sessions[user_id]
+    return True
