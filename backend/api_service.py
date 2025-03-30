@@ -7,6 +7,7 @@ import os
 import time
 import requests
 import logging
+import json
 from dotenv import load_dotenv
 from .users import get_user_rate_limit, increment_user_usage
 
@@ -15,7 +16,7 @@ load_dotenv()
 
 # API configuration
 API_BASE_URL = os.getenv('HUMANIZER_API_URL', 'https://web-production-3db6c.up.railway.app')
-API_KEY = os.getenv('HUMANIZER_API_KEY', '')
+HUMANIZE_ENDPOINT = '/humanize_text'  # The specific endpoint for humanization
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,73 +52,68 @@ def humanize_text(text, user_id, account_type):
         'User-Agent': 'Andikar-Backend/1.0'
     }
     
-    # Add Authorization header if API key is available
-    if API_KEY:
-        headers['Authorization'] = f'Bearer {API_KEY}'
+    # Construct the full API URL
+    api_url = f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
     
+    # Prepare the payload based on our API testing
     payload = {
-        'text': text,
-        'options': {
-            'style': 'natural',
-            'formality': 'neutral',
-            'preserve_formatting': True
-        }
+        "text": text
     }
+    
+    logger.info(f"Sending request to API: {api_url}")
+    logger.info(f"Request payload: {json.dumps(payload)}")
     
     # Make the request with error handling
     try:
         start_time = time.time()
         
-        # Try multiple endpoints in case the first one doesn't work
-        endpoints = [
-            '/api/humanize',
-            '/humanize',
-            '/v1/humanize'
-        ]
+        # Make the POST request
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers=headers,
+            timeout=30  # 30 second timeout
+        )
         
-        response = None
-        error_messages = []
+        # Log response details for debugging
+        logger.info(f"Response status code: {response.status_code}")
+        logger.info(f"Response headers: {response.headers}")
+        logger.info(f"Response content: {response.text[:500]}")  # Log first 500 chars
         
-        for endpoint in endpoints:
+        # Check if the request was successful
+        if response.status_code != 200:
+            error_message = f"API request failed with status code {response.status_code}"
             try:
-                logger.info(f"Trying API endpoint: {endpoint}")
-                response = requests.post(
-                    f"{API_BASE_URL}{endpoint}",
-                    json=payload,
-                    headers=headers,
-                    timeout=30  # 30 second timeout
-                )
-                
-                if response.status_code == 200:
-                    logger.info(f"Successful API response from endpoint: {endpoint}")
-                    break
-                else:
-                    error_messages.append(f"Endpoint {endpoint} returned status {response.status_code}")
-                    response = None
-            except Exception as e:
-                error_messages.append(f"Error with endpoint {endpoint}: {str(e)}")
-                continue
+                error_data = response.json()
+                if 'error' in error_data:
+                    error_message += f": {error_data['error']}"
+            except:
+                if response.text:
+                    error_message += f": {response.text[:200]}"
+            
+            logger.error(error_message)
+            raise HumanizerAPIError(error_message)
         
-        # If none of the endpoints worked
-        if not response or response.status_code != 200:
-            error_detail = " | ".join(error_messages)
-            logger.error(f"All API endpoints failed: {error_detail}")
-            raise HumanizerAPIError(f"API request failed: {error_detail}")
+        # Try to parse the response as JSON
+        try:
+            result = response.json()
+        except json.JSONDecodeError:
+            # If not JSON, treat the response as plain text
+            result = {
+                "humanized_text": response.text
+            }
         
-        # Parse response
-        result = response.json()
-        humanized_text = result.get('humanized_text', '')
-        
-        # If we don't receive humanized text, check for alternate response formats
-        if not humanized_text and 'result' in result:
-            humanized_text = result.get('result', '')
-        
-        if not humanized_text and 'data' in result:
-            humanized_text = result.get('data', {}).get('text', '')
-        
-        if not humanized_text:
-            logger.error(f"API response missing humanized text: {result}")
-            raise HumanizerAPIError("API response did not contain humanized text")
+        # Get the humanized text from the response
+        if 'humanized_text' in result:
+            humanized_text = result['humanized_text']
+        elif 'result' in result:
+            humanized_text = result['result']
+        elif 'text' in result:
+            humanized_text = result['text']
+        elif isinstance(result, str):
+            humanized_text = result
+        else:
+            humanized_text = response.text
         
         response_time = time.time() - start_time
         
@@ -149,46 +145,41 @@ def humanize_text(text, user_id, account_type):
 def get_api_status():
     """Check the status of the humanizer API"""
     try:
-        # Try multiple endpoints for status
-        status_endpoints = [
-            '/status',
-            '/api/status',
-            '/health'
-        ]
+        # Try to access the humanize endpoint with a minimal request
+        api_url = f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
         
-        for endpoint in status_endpoints:
-            try:
-                response = requests.get(
-                    f"{API_BASE_URL}{endpoint}",
-                    headers={'User-Agent': 'Andikar-Backend/1.0'},
-                    timeout=5
-                )
-                
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
-                    except:
-                        data = {'status': 'healthy'}
-                        
-                    return {
-                        'status': 'online',
-                        'latency': response.elapsed.total_seconds(),
-                        'api_version': data.get('version', 'unknown'),
-                        'endpoint': endpoint
-                    }
-            except:
-                continue
-        
-        # If we get here, all endpoints failed
-        return {
-            'status': 'offline',
-            'message': "API is unreachable. Please check configuration.",
-            'base_url': API_BASE_URL
+        # Make a minimal request
+        payload = {
+            "text": "Test connection."
         }
+        
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers={'Content-Type': 'application/json'},
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            return {
+                'status': 'online',
+                'latency': response.elapsed.total_seconds(),
+                'endpoint': HUMANIZE_ENDPOINT,
+                'full_url': api_url
+            }
+        else:
+            return {
+                'status': 'degraded',
+                'latency': response.elapsed.total_seconds(),
+                'message': f"API returned status code {response.status_code}",
+                'endpoint': HUMANIZE_ENDPOINT,
+                'full_url': api_url
+            }
             
     except Exception as e:
         return {
-            'status': 'error',
-            'message': "Error checking API status",
-            'error': str(e)
+            'status': 'offline',
+            'message': f"Error checking API status: {str(e)}",
+            'endpoint': HUMANIZE_ENDPOINT,
+            'full_url': f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
         }
