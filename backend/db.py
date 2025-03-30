@@ -5,6 +5,7 @@ Handles connection and operations for the MongoDB database
 
 import os
 import logging
+import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
@@ -249,7 +250,8 @@ def get_user_transactions(user_id):
         
         # Convert ObjectId to string for each transaction
         for transaction in transactions:
-            transaction['_id'] = str(transaction['_id'])
+            if '_id' in transaction:
+                transaction['_id'] = str(transaction['_id'])
             
         return transactions
     except Exception as e:
@@ -267,8 +269,6 @@ def init_db():
         
         if not demo_user:
             # Create demo user
-            import datetime
-            
             demo_user = {
                 "username": "demo",
                 "password": generate_password_hash("demo"),
