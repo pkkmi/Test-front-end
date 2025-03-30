@@ -7,7 +7,6 @@ import os
 import time
 import requests
 import logging
-import random  # For demo purposes only
 from dotenv import load_dotenv
 from .users import get_user_rate_limit, increment_user_usage
 
@@ -48,10 +47,13 @@ def humanize_text(text, user_id, account_type):
     
     # Prepare request
     headers = {
-        'Authorization': f'Bearer {API_KEY}',
         'Content-Type': 'application/json',
         'User-Agent': 'Andikar-Backend/1.0'
     }
+    
+    # Add Authorization header if API key is available
+    if API_KEY:
+        headers['Authorization'] = f'Bearer {API_KEY}'
     
     payload = {
         'text': text,
@@ -66,59 +68,56 @@ def humanize_text(text, user_id, account_type):
     try:
         start_time = time.time()
         
-        # Try to use the real API if configured
-        if API_KEY:
-            response = requests.post(
-                f"{API_BASE_URL}/api/humanize",  # Adjust endpoint as needed
-                json=payload,
-                headers=headers,
-                timeout=30  # 30 second timeout
-            )
-            
-            # Handle error response codes
-            if response.status_code != 200:
-                logger.warning(f"API request failed with status {response.status_code}, using fallback")
-                # Use fallback method below
-                raise Exception("API request failed")
+        # Try multiple endpoints in case the first one doesn't work
+        endpoints = [
+            '/api/humanize',
+            '/humanize',
+            '/v1/humanize'
+        ]
+        
+        response = None
+        error_messages = []
+        
+        for endpoint in endpoints:
+            try:
+                logger.info(f"Trying API endpoint: {endpoint}")
+                response = requests.post(
+                    f"{API_BASE_URL}{endpoint}",
+                    json=payload,
+                    headers=headers,
+                    timeout=30  # 30 second timeout
+                )
                 
-            result = response.json()
-            humanized_text = result.get('humanized_text', '')
-        else:
-            # Fallback/demo method if API key not available
-            # This simulates an API response for testing
-            time.sleep(0.5)  # Simulate API latency
-            
-            # Simple text humanization simulation
-            lines = text.split('\n')
-            humanized_lines = []
-            
-            for line in lines:
-                if not line.strip():
-                    humanized_lines.append(line)
-                    continue
-                    
-                words = line.split()
-                # Mix in some sentence variations
-                if len(words) > 3 and random.random() > 0.7:
-                    # Add transition words
-                    transitions = ["moreover", "however", "indeed", "specifically", "naturally"]
-                    idx = random.randint(1, min(3, len(words)-1))
-                    words.insert(idx, random.choice(transitions) + ",")
-                
-                # Occasionally combine sentences
-                if '.' in line and random.random() > 0.8:
-                    parts = line.split('.')
-                    if len(parts) >= 2:
-                        connectors = [" moreover, ", " additionally, ", " furthermore, ", " in addition, "]
-                        for i in range(len(parts)-1):
-                            if parts[i].strip() and parts[i+1].strip():
-                                parts[i] = parts[i] + random.choice(connectors) + parts[i+1].lstrip()
-                                parts[i+1] = ""
-                    humanized_lines.append('.'.join([p for p in parts if p]))
+                if response.status_code == 200:
+                    logger.info(f"Successful API response from endpoint: {endpoint}")
+                    break
                 else:
-                    humanized_lines.append(' '.join(words))
-            
-            humanized_text = '\n'.join(humanized_lines)
+                    error_messages.append(f"Endpoint {endpoint} returned status {response.status_code}")
+                    response = None
+            except Exception as e:
+                error_messages.append(f"Error with endpoint {endpoint}: {str(e)}")
+                continue
+        
+        # If none of the endpoints worked
+        if not response or response.status_code != 200:
+            error_detail = " | ".join(error_messages)
+            logger.error(f"All API endpoints failed: {error_detail}")
+            raise HumanizerAPIError(f"API request failed: {error_detail}")
+        
+        # Parse response
+        result = response.json()
+        humanized_text = result.get('humanized_text', '')
+        
+        # If we don't receive humanized text, check for alternate response formats
+        if not humanized_text and 'result' in result:
+            humanized_text = result.get('result', '')
+        
+        if not humanized_text and 'data' in result:
+            humanized_text = result.get('data', {}).get('text', '')
+        
+        if not humanized_text:
+            logger.error(f"API response missing humanized text: {result}")
+            raise HumanizerAPIError("API response did not contain humanized text")
         
         response_time = time.time() - start_time
         
@@ -150,30 +149,46 @@ def humanize_text(text, user_id, account_type):
 def get_api_status():
     """Check the status of the humanizer API"""
     try:
-        response = requests.get(
-            f"{API_BASE_URL}/status",
-            headers={'User-Agent': 'Andikar-Backend/1.0'},
-            timeout=5
-        )
+        # Try multiple endpoints for status
+        status_endpoints = [
+            '/status',
+            '/api/status',
+            '/health'
+        ]
         
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'status': 'online',
-                'latency': response.elapsed.total_seconds(),
-                'api_version': data.get('version', 'unknown')
-            }
-        else:
-            return {
-                'status': 'degraded',
-                'latency': response.elapsed.total_seconds(),
-                'message': f"API returned status code {response.status_code}"
-            }
+        for endpoint in status_endpoints:
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}{endpoint}",
+                    headers={'User-Agent': 'Andikar-Backend/1.0'},
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                    except:
+                        data = {'status': 'healthy'}
+                        
+                    return {
+                        'status': 'online',
+                        'latency': response.elapsed.total_seconds(),
+                        'api_version': data.get('version', 'unknown'),
+                        'endpoint': endpoint
+                    }
+            except:
+                continue
+        
+        # If we get here, all endpoints failed
+        return {
+            'status': 'offline',
+            'message': "API is unreachable. Please check configuration.",
+            'base_url': API_BASE_URL
+        }
             
     except Exception as e:
-        # If API is not reachable, use fallback mode
         return {
-            'status': 'fallback',
-            'message': "Using local text processing (API not available)",
+            'status': 'error',
+            'message': "Error checking API status",
             'error': str(e)
         }
