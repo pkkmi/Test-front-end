@@ -244,7 +244,7 @@ def detect():
 
 @app.route('/account')
 @login_required
-def dashboard():
+def account():
     user_id = session.get('user_id')
     
     # Get user data from database
