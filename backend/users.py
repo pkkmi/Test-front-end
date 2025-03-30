@@ -1,311 +1,182 @@
 """
-User management module for Andikar AI.
-This module handles user account operations and data.
+Users Module
+Handles user account information, rate limits, and usage tracking
 """
 
+import os
 import time
 import datetime
-import logging
-from models import users_db, transactions_db
-from config import pricing_plans
-from backend.api_service import register_user_to_backend_api
+from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+load_dotenv()
 
-def get_user_by_username(username):
-    """
-    Get user data by username
-    
-    Args:
-        username (str): Username
-        
-    Returns:
-        dict: User data or None if not found
-    """
-    if username in users_db:
-        # Create a copy of user data for safety
-        user_data = dict(users_db[username])
-        # Don't return password in responses
-        if 'password' in user_data:
-            user_data.pop('password')
-        return user_data
-    return None
-
-def get_user_account_info(username):
-    """
-    Get comprehensive user account information
-    
-    Args:
-        username (str): Username
-        
-    Returns:
-        dict: User account information
-    """
-    if username not in users_db:
-        return None
-        
-    user_data = get_user_by_username(username)
-    if not user_data:
-        return None
-    
-    # Get user's transactions
-    user_transactions = [t for t in transactions_db if t.get('user_id') == username]
-    
-    # Get plan details
-    plan_info = pricing_plans.get(user_data['plan'], {})
-    
-    # Calculate usage percentage
-    word_limit = plan_info.get('word_limit', 0)
-    words_used = user_data.get('words_used', 0)
-    usage_percentage = (words_used / word_limit * 100) if word_limit > 0 else 0
-    
-    # Calculate days remaining in subscription (placeholder for real implementation)
-    days_remaining = 30  # Assuming monthly subscriptions
-    
-    account_info = {
-        'username': username,
-        'plan': user_data['plan'],
-        'plan_details': plan_info,
-        'joined_date': user_data.get('joined_date', ''),
-        'payment_status': user_data.get('payment_status', 'Unknown'),
-        'usage_stats': {
-            'words_used': words_used,
-            'word_limit': word_limit,
-            'usage_percentage': round(usage_percentage, 1),
-            'days_remaining': days_remaining
-        },
-        'last_transactions': user_transactions[:5],  # Last 5 transactions
-        'api_keys_configured': bool(user_data.get('api_keys', {}).get('gpt_zero')) or bool(user_data.get('api_keys', {}).get('originality'))
+# Account type configurations
+ACCOUNT_TYPES = {
+    'free': {
+        'daily_limit': 5,
+        'monthly_limit': 100,
+        'features': ['basic_humanization']
+    },
+    'basic': {
+        'daily_limit': 25,
+        'monthly_limit': 500,
+        'features': ['basic_humanization', 'custom_style']
+    },
+    'premium': {
+        'daily_limit': 100,
+        'monthly_limit': 2000,
+        'features': ['basic_humanization', 'custom_style', 'priority_processing']
+    },
+    'enterprise': {
+        'daily_limit': 10000,
+        'monthly_limit': 200000,
+        'features': ['basic_humanization', 'custom_style', 'priority_processing', 'api_access']
+    },
+    'admin': {
+        'daily_limit': float('inf'),
+        'monthly_limit': float('inf'),
+        'features': ['basic_humanization', 'custom_style', 'priority_processing', 'api_access', 'admin']
     }
-    
-    return account_info
+}
 
-def update_user_plan(username, new_plan):
-    """
-    Update a user's subscription plan
-    
-    Args:
-        username (str): Username
-        new_plan (str): New subscription plan
-        
-    Returns:
-        tuple: (success, message)
-    """
-    if username not in users_db:
-        return False, "User not found"
-        
-    if new_plan not in pricing_plans:
-        return False, "Invalid plan type"
-        
-    current_plan = users_db[username]['plan']
-    
-    if current_plan == new_plan:
-        return False, "User is already on this plan"
-    
-    # Update plan and set payment status based on plan type
-    users_db[username]['plan'] = new_plan
-    
-    # Free plan is automatically paid, others require payment
-    if new_plan == 'Free':
-        users_db[username]['payment_status'] = 'Paid'
-        message = "Plan updated to Free tier."
-    else:
-        users_db[username]['payment_status'] = 'Pending'
-        message = f"Plan updated to {new_plan}. Payment required to activate."
-    
-    # Sync with backend
-    try:
-        # Use generic email format if we don't have it stored
-        email = f"{username}@example.com"  # Just a placeholder
-        register_user_to_backend_api(
-            username=username,
-            email=email,
-            plan_type=new_plan
-        )
-    except Exception as e:
-        logger.error(f"Error syncing plan update with backend: {e}")
-        # Continue anyway since we've updated locally
-    
-    return True, message
-
-def update_user_usage(username, word_count):
-    """
-    Update a user's word usage counter
-    
-    Args:
-        username (str): Username
-        word_count (int): Number of words used
-        
-    Returns:
-        bool: Success status
-    """
-    if username not in users_db:
-        return False
-    
-    # Update word count
-    current_usage = users_db[username].get('words_used', 0)
-    users_db[username]['words_used'] = current_usage + word_count
-    
-    # Log for tracking
-    logger.info(f"Updated usage for {username}: +{word_count} words, total: {users_db[username]['words_used']}")
-    
-    return True
-
-def check_user_limit(username):
-    """
-    Check if a user has reached their word limit
-    
-    Args:
-        username (str): Username
-        
-    Returns:
-        tuple: (has_exceeded, remaining_words)
-    """
-    if username not in users_db:
-        return True, 0
-    
-    user_data = users_db[username]
-    plan = user_data.get('plan', 'Free')
-    words_used = user_data.get('words_used', 0)
-    word_limit = pricing_plans.get(plan, {}).get('word_limit', 0)
-    
-    if word_limit <= 0:  # No limit or invalid plan
-        return False, 0
-    
-    remaining = max(0, word_limit - words_used)
-    has_exceeded = words_used >= word_limit
-    
-    return has_exceeded, remaining
-
-def register_new_user(username, password, email, plan_type=None, phone=None):
-    """
-    Register a new user
-    
-    Args:
-        username (str): Username
-        password (str): Password
-        email (str): Email address
-        plan_type (str, optional): Subscription plan
-        phone (str, optional): Phone number
-        
-    Returns:
-        tuple: (success, message)
-    """
-    if username in users_db:
-        return False, "Username already exists"
-    
-    # Validate plan type
-    plan_type = plan_type if plan_type in pricing_plans else 'Free'
-    
-    # Set payment status (Free tier is automatically Paid)
-    payment_status = 'Paid' if plan_type == 'Free' else 'Pending'
-    
-    # Save user to in-memory database
-    users_db[username] = {
-        'password': password,
-        'plan': plan_type,
-        'joined_date': datetime.datetime.now().strftime('%Y-%m-%d'),
-        'words_used': 0,
-        'payment_status': payment_status,
-        'api_keys': {
-            'gpt_zero': '',
-            'originality': ''
+# Mock user database (replace with actual database in production)
+# In a real application, this would be stored in a database
+user_db = {
+    # Example user entry
+    'admin_user': {
+        'username': 'admin',
+        'email': 'admin@example.com',
+        'account_type': 'admin',
+        'usage': {
+            'daily': 0,
+            'monthly': 0,
+            'last_reset_day': datetime.datetime.now().day,
+            'last_reset_month': datetime.datetime.now().month
         }
     }
-    
-    # Register user to backend
-    success, message, _ = register_user_to_backend_api(
-        username=username,
-        email=email,
-        phone=phone,
-        plan_type=plan_type
-    )
-    
-    if not success:
-        # If backend registration fails, we still keep the local registration
-        # but return a warning message
-        return True, f"Registration successful, but backend sync encountered an issue: {message}"
-    
-    return True, "Registration successful"
+}
 
-def process_payment(username, phone_number, amount=None):
-    """
-    Process a payment for a user
+def get_user_info(user_id):
+    """Get user account information"""
+    if user_id not in user_db:
+        return None
     
-    Args:
-        username (str): Username
-        phone_number (str): Phone number for payment
-        amount (float, optional): Payment amount (uses plan price if None)
-        
-    Returns:
-        tuple: (success, message, transaction_id)
-    """
-    if username not in users_db:
-        return False, "User not found", None
+    user = user_db[user_id]
+    check_usage_reset(user_id)  # Check if usage counters need to be reset
     
-    # If amount not specified, use plan price
-    if amount is None:
-        plan = users_db[username]['plan']
-        amount = pricing_plans.get(plan, {}).get('price', 0)
+    account_type = user['account_type']
+    limits = ACCOUNT_TYPES.get(account_type, ACCOUNT_TYPES['free'])
     
-    # Generate transaction ID
-    import random
-    import string
-    transaction_id = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
-    
-    # Record the transaction
-    transaction = {
-        'transaction_id': transaction_id,
-        'user_id': username,
-        'phone_number': phone_number,
-        'amount': amount,
-        'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'status': 'Completed'
+    return {
+        'user_id': user_id,
+        'username': user['username'],
+        'email': user['email'],
+        'account_type': account_type,
+        'limits': {
+            'daily': limits['daily_limit'],
+            'monthly': limits['monthly_limit']
+        },
+        'usage': {
+            'daily': user['usage']['daily'],
+            'monthly': user['usage']['monthly']
+        },
+        'features': limits['features']
     }
-    
-    transactions_db.append(transaction)
-    
-    # Update payment status
-    users_db[username]['payment_status'] = 'Paid'
-    
-    # Sync with backend
-    try:
-        # Use generic email format if we don't have it stored
-        email = f"{username}@example.com"  # Just a placeholder
-        register_user_to_backend_api(
-            username=username,
-            email=email,
-            phone=phone_number,
-            plan_type=users_db[username]['plan']
-        )
-    except Exception as e:
-        logger.error(f"Error syncing payment with backend: {e}")
-        # Continue anyway since we've updated locally
-    
-    return True, f"Payment of KES {amount} successful", transaction_id
 
-def update_api_keys(username, gpt_zero_key=None, originality_key=None):
-    """
-    Update API keys for a user
-    
-    Args:
-        username (str): Username
-        gpt_zero_key (str, optional): GPT Zero API key
-        originality_key (str, optional): Originality.ai API key
+def get_user_rate_limit(user_id, account_type=None):
+    """Get user rate limit information"""
+    # If user doesn't exist, create a temporary entry
+    if user_id not in user_db:
+        if not account_type:
+            account_type = 'free'  # Default to free tier
         
-    Returns:
-        bool: Success status
-    """
-    if username not in users_db:
+        user_db[user_id] = {
+            'username': user_id,
+            'email': f'{user_id}@example.com',
+            'account_type': account_type,
+            'usage': {
+                'daily': 0,
+                'monthly': 0,
+                'last_reset_day': datetime.datetime.now().day,
+                'last_reset_month': datetime.datetime.now().month
+            }
+        }
+    
+    user = user_db[user_id]
+    check_usage_reset(user_id)  # Reset counters if needed
+    
+    # Get rate limits from account type
+    limits = ACCOUNT_TYPES.get(user['account_type'], ACCOUNT_TYPES['free'])
+    
+    # Calculate remaining limits
+    daily_remaining = max(0, limits['daily_limit'] - user['usage']['daily'])
+    monthly_remaining = max(0, limits['monthly_limit'] - user['usage']['monthly'])
+    remaining = min(daily_remaining, monthly_remaining)
+    
+    # Calculate reset times
+    now = datetime.datetime.now()
+    daily_reset = datetime.datetime(now.year, now.month, now.day) + datetime.timedelta(days=1)
+    
+    # Calculate month reset (first day of next month)
+    if now.month == 12:
+        monthly_reset = datetime.datetime(now.year + 1, 1, 1)
+    else:
+        monthly_reset = datetime.datetime(now.year, now.month + 1, 1)
+    
+    return {
+        'limit': limits['daily_limit'],
+        'remaining': remaining,
+        'reset_time': daily_reset.strftime('%Y-%m-%d %H:%M:%S'),
+        'monthly_limit': limits['monthly_limit'],
+        'monthly_remaining': monthly_remaining,
+        'monthly_reset_time': monthly_reset.strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+def increment_user_usage(user_id, count=1):
+    """Increment user usage counter"""
+    if user_id not in user_db:
         return False
     
-    # Only update keys that are provided
-    if gpt_zero_key is not None:
-        users_db[username]['api_keys']['gpt_zero'] = gpt_zero_key
+    check_usage_reset(user_id)  # Reset counters if needed
     
-    if originality_key is not None:
-        users_db[username]['api_keys']['originality'] = originality_key
+    user_db[user_id]['usage']['daily'] += count
+    user_db[user_id]['usage']['monthly'] += count
     
     return True
+
+def check_usage_reset(user_id):
+    """Check if usage counters need to be reset"""
+    if user_id not in user_db:
+        return
+    
+    user = user_db[user_id]
+    now = datetime.datetime.now()
+    
+    # Reset daily counter if day changed
+    if user['usage']['last_reset_day'] != now.day:
+        user['usage']['daily'] = 0
+        user['usage']['last_reset_day'] = now.day
+    
+    # Reset monthly counter if month changed
+    if user['usage']['last_reset_month'] != now.month:
+        user['usage']['monthly'] = 0
+        user['usage']['last_reset_month'] = now.month
+
+def update_user_account_type(user_id, new_account_type):
+    """Update user account type"""
+    if user_id not in user_db or new_account_type not in ACCOUNT_TYPES:
+        return False
+    
+    user_db[user_id]['account_type'] = new_account_type
+    return True
+
+def check_feature_access(user_id, feature):
+    """Check if user has access to a specific feature"""
+    if user_id not in user_db:
+        return False
+    
+    user = user_db[user_id]
+    account_type = user['account_type']
+    features = ACCOUNT_TYPES.get(account_type, ACCOUNT_TYPES['free'])['features']
+    
+    return feature in features
