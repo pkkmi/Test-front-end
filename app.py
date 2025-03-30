@@ -5,15 +5,39 @@ import datetime
 import re
 import os
 import requests
+import logging
 from functools import wraps
 
 from config import APP_NAME, pricing_plans
 from models import users_db, transactions_db
-from utils import humanize_text, detect_ai_content, register_user_to_backend
 from templates import html_templates
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32)))
+
+# Import backend modules
+from backend.api_routes import api_bp
+from backend.auth import login_required_api
+from backend.users import (
+    register_new_user, 
+    get_user_account_info, 
+    process_payment, 
+    update_user_plan,
+    update_user_usage,
+    update_api_keys
+)
+from backend.api_service import humanize_text_api, detect_ai_content_api
+
+# Register API blueprint
+app.register_blueprint(api_bp)
 
 # Login decorator
 def login_required(f):
@@ -37,8 +61,9 @@ def login():
         username = request.form['username']
         password = request.form['password']
 
-        # Check if user exists (simplified for demo)
-        if username in users_db and users_db[username]['password'] == password:
+        # Check if user exists (using backend function)
+        from backend.auth import validate_user_credentials
+        if validate_user_credentials(username, password):
             session['user_id'] = username
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
@@ -59,41 +84,20 @@ def register():
         email = request.form['email']
         phone = request.form.get('phone', None)  # Phone is optional
 
-        if username in users_db:
-            flash('Username already exists', 'error')
+        # Register user using backend function
+        success, message = register_new_user(
+            username=username,
+            password=password,
+            email=email,
+            plan_type=plan_type,
+            phone=phone
+        )
+        
+        if success:
+            flash(message, 'success' if 'successful' in message else 'warning')
+            return redirect(url_for('login'))
         else:
-            # Set payment status (Free tier is automatically Paid)
-            payment_status = 'Paid' if plan_type == 'Free' else 'Pending'
-
-            # Save user to in-memory database
-            users_db[username] = {
-                'password': password,
-                'plan': plan_type,
-                'joined_date': datetime.datetime.now().strftime('%Y-%m-%d'),
-                'words_used': 0,
-                'payment_status': payment_status,
-                'api_keys': {
-                    'gpt_zero': '',
-                    'originality': ''
-                }
-            }
-            
-            # Register the user to the backend API
-            success, message = register_user_to_backend(
-                username=username,
-                email=email,
-                phone=phone,
-                plan_type=plan_type
-            )
-            
-            if success:
-                flash('Registration successful! Please login.', 'success')
-                return redirect(url_for('login'))
-            else:
-                # If backend registration fails, we'll still allow the user to proceed
-                # but inform them of the issue
-                flash(f'Local registration successful, but backend sync encountered an issue: {message}', 'warning')
-                return redirect(url_for('login'))
+            flash(message, 'error')
 
     return render_template_string(html_templates['register.html'], pricing_plans=pricing_plans)
 
@@ -101,7 +105,13 @@ def register():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    user_data = users_db[session['user_id']]
+    # Get detailed user account info using backend function
+    user_data = get_user_account_info(session['user_id'])
+    
+    if not user_data:
+        flash('User data not found', 'error')
+        return redirect(url_for('logout'))
+        
     return render_template_string(html_templates['dashboard.html'], user=user_data,
                                   plan=pricing_plans[user_data['plan']])
 
@@ -111,19 +121,29 @@ def dashboard():
 def humanize():
     message = ""
     humanized_text = ""
-    payment_required = users_db[session['user_id']]['payment_status'] == 'Pending' and users_db[session['user_id']][
-        'plan'] != 'Free'
+    
+    # Get user data
+    user_data = get_user_account_info(session['user_id'])
+    if not user_data:
+        flash('User data not found', 'error')
+        return redirect(url_for('dashboard'))
+        
+    payment_required = user_data['payment_status'] == 'Pending' and user_data['plan'] != 'Free'
 
     if request.method == 'POST':
         original_text = request.form['original_text']
-        user_type = users_db[session['user_id']]['plan']
+        user_type = user_data['plan']
 
         # Only process if payment not required or on Free plan
         if not payment_required:
-            humanized_text, message = humanize_text(original_text, user_type)
-
-            # Update word usage
-            users_db[session['user_id']]['words_used'] += len(original_text.split())
+            # Use backend API service to humanize text
+            humanized_text, message, status_code = humanize_text_api(original_text, user_type)
+            
+            if status_code == 200:
+                # Update word usage
+                update_user_usage(session['user_id'], len(original_text.split()))
+            else:
+                flash(f"Error: {message}", 'error')
         else:
             message = "Payment required to access this feature. Please upgrade your plan."
 
@@ -131,7 +151,7 @@ def humanize():
                                   message=message,
                                   humanized_text=humanized_text,
                                   payment_required=payment_required,
-                                  word_limit=pricing_plans[users_db[session['user_id']]['plan']]['word_limit'])
+                                  word_limit=pricing_plans[user_data['plan']]['word_limit'])
 
 
 @app.route('/detect', methods=['GET', 'POST'])
@@ -139,15 +159,26 @@ def humanize():
 def detect():
     result = None
     message = ""
-    payment_required = users_db[session['user_id']]['payment_status'] == 'Pending' and users_db[session['user_id']][
-        'plan'] != 'Free'
+    
+    # Get user data
+    user_data = get_user_account_info(session['user_id'])
+    if not user_data:
+        flash('User data not found', 'error')
+        return redirect(url_for('dashboard'))
+        
+    payment_required = user_data['payment_status'] == 'Pending' and user_data['plan'] != 'Free'
 
     if request.method == 'POST':
         text = request.form['text']
 
         # Check payment status for non-free users
         if not payment_required:
-            result = detect_ai_content(text)
+            # Use backend API service to detect AI content
+            api_keys = users_db[session['user_id']].get('api_keys', {})
+            result, message, status_code = detect_ai_content_api(text, api_keys)
+            
+            if status_code != 200:
+                flash(f"Error: {message}", 'error')
         else:
             message = "Payment required to access this feature. Please upgrade your plan."
 
@@ -160,9 +191,18 @@ def detect():
 @app.route('/account')
 @login_required
 def account():
-    user_data = users_db[session['user_id']]
+    # Get detailed user account info
+    user_data = get_user_account_info(session['user_id'])
+    
+    if not user_data:
+        flash('User data not found', 'error')
+        return redirect(url_for('logout'))
+        
     user_transactions = [t for t in transactions_db if t['user_id'] == session['user_id']]
-    return render_template_string(html_templates['account.html'], user=user_data, plan=pricing_plans[user_data['plan']],
+    
+    return render_template_string(html_templates['account.html'], 
+                                  user=user_data, 
+                                  plan=pricing_plans[user_data['plan']],
                                   transactions=user_transactions)
 
 
@@ -173,11 +213,12 @@ def api_integration():
         gpt_zero_key = request.form.get('gpt_zero_key', '')
         originality_key = request.form.get('originality_key', '')
 
-        # Update API keys
-        users_db[session['user_id']]['api_keys']['gpt_zero'] = gpt_zero_key
-        users_db[session['user_id']]['api_keys']['originality'] = originality_key
-
-        flash('API keys updated successfully!', 'success')
+        # Update API keys using backend function
+        if update_api_keys(session['user_id'], gpt_zero_key, originality_key):
+            flash('API keys updated successfully!', 'success')
+        else:
+            flash('Failed to update API keys', 'error')
+            
         return redirect(url_for('api_integration'))
 
     return render_template_string(html_templates['api_integration.html'],
@@ -210,40 +251,29 @@ def pricing():
 def payment():
     if request.method == 'POST':
         phone_number = request.form['phone_number']
-        amount = pricing_plans[users_db[session['user_id']]['plan']]['price']
-
-        # Simulate M-PESA payment
-        transaction_id = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
-
-        transactions_db.append({
-            'transaction_id': transaction_id,
-            'user_id': session['user_id'],
-            'phone_number': phone_number,
-            'amount': amount,
-            'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'status': 'Completed'
-        })
-
-        users_db[session['user_id']]['payment_status'] = 'Paid'
-        flash(f'Payment of KES {amount} successful! Transaction ID: {transaction_id}', 'success')
         
-        # When a payment is completed, update user profile in backend
-        try:
-            # Use a default email format if we don't have their email
-            email = f"{session['user_id']}@example.com"  # This is just a fallback
-            register_user_to_backend(
-                username=session['user_id'],
-                email=email,
-                phone=phone_number,
-                plan_type=users_db[session['user_id']]['plan']
-            )
-        except Exception as e:
-            print(f"Error updating user profile in backend: {e}")
-            
-        return redirect(url_for('account'))
+        # Get plan price
+        plan = users_db[session['user_id']]['plan']
+        amount = pricing_plans[plan]['price']
 
+        # Process payment using backend function
+        success, message, transaction_id = process_payment(
+            username=session['user_id'],
+            phone_number=phone_number,
+            amount=amount
+        )
+        
+        if success:
+            flash(message, 'success')
+            return redirect(url_for('account'))
+        else:
+            flash(message, 'error')
+
+    # Get user data
+    user_data = get_user_account_info(session['user_id'])
+    
     return render_template_string(html_templates['payment.html'],
-                                  plan=pricing_plans[users_db[session['user_id']]['plan']])
+                                  plan=pricing_plans[user_data['plan']])
 
 
 @app.route('/upgrade', methods=['GET', 'POST'])
@@ -251,14 +281,28 @@ def payment():
 def upgrade():
     if request.method == 'POST':
         new_plan = request.form['new_plan']
-        users_db[session['user_id']]['plan'] = new_plan
-        users_db[session['user_id']]['payment_status'] = 'Pending'
-        flash(f'Your plan has been upgraded to {new_plan}. Please make payment to activate.', 'success')
-        return redirect(url_for('payment'))
+        
+        # Update user plan using backend function
+        success, message = update_user_plan(session['user_id'], new_plan)
+        
+        if success:
+            flash(message, 'success')
+            
+            # Redirect to payment if needed
+            if 'payment required' in message.lower():
+                return redirect(url_for('payment'))
+            return redirect(url_for('account'))
+        else:
+            flash(message, 'error')
+            return redirect(url_for('upgrade'))
 
-    current_plan = users_db[session['user_id']]['plan']
+    # Get user data
+    user_data = get_user_account_info(session['user_id'])
+    current_plan = user_data['plan']
+    
     available_plans = {k: v for k, v in pricing_plans.items() if k != current_plan}
-    return render_template_string(html_templates['upgrade.html'], current_plan=pricing_plans[current_plan],
+    return render_template_string(html_templates['upgrade.html'], 
+                                  current_plan=pricing_plans[current_plan],
                                   available_plans=available_plans)
 
 
@@ -273,83 +317,12 @@ def logout():
 @app.route('/api-test')
 def api_test():
     """Diagnostic endpoint to check the humanizer API connection"""
-    api_url = os.environ.get("HUMANIZER_API_URL", "https://web-production-3db6c.up.railway.app")
-    sample_text = "This is a test of the Andikar humanizer API connection."
-    results = {
-        "api_url": api_url,
-        "tests": []
-    }
+    from backend.api_service import get_api_status
     
-    # Test 1: Check the root endpoint
-    try:
-        response = requests.get(f"{api_url}/", timeout=5)
-        results["tests"].append({
-            "name": "Root endpoint",
-            "success": response.status_code == 200,
-            "status": response.status_code,
-            "content_type": response.headers.get('content-type', 'Unknown')
-        })
-    except Exception as e:
-        results["tests"].append({
-            "name": "Root endpoint",
-            "success": False,
-            "error": str(e)
-        })
-        
-    # Test 2: Check the echo endpoint
-    try:
-        response = requests.post(f"{api_url}/echo_text", json={"input_text": sample_text}, timeout=5)
-        results["tests"].append({
-            "name": "Echo endpoint",
-            "success": response.status_code == 200,
-            "status": response.status_code,
-            "response": response.json() if response.status_code == 200 else response.text[:100]
-        })
-    except Exception as e:
-        results["tests"].append({
-            "name": "Echo endpoint",
-            "success": False,
-            "error": str(e)
-        })
-        
-    # Test 3: Check the humanize endpoint
-    try:
-        response = requests.post(f"{api_url}/humanize_text", json={"input_text": sample_text}, timeout=15)
-        results["tests"].append({
-            "name": "Humanize endpoint",
-            "success": response.status_code == 200,
-            "status": response.status_code,
-            "response": response.json() if response.status_code == 200 else response.text[:100]
-        })
-    except Exception as e:
-        results["tests"].append({
-            "name": "Humanize endpoint",
-            "success": False,
-            "error": str(e)
-        })
-        
-    # Test 4: Check the admin API registration endpoint
-    admin_api_url = os.environ.get("ADMIN_API_URL", "https://railway-test-api-production.up.railway.app")
-    try:
-        # Just check if the endpoint is reachable, don't actually register
-        response = requests.get(f"{admin_api_url}/", timeout=5)
-        results["tests"].append({
-            "name": "Admin API root endpoint",
-            "success": response.status_code == 200,
-            "status": response.status_code,
-            "content_type": response.headers.get('content-type', 'Unknown')
-        })
-    except Exception as e:
-        results["tests"].append({
-            "name": "Admin API root endpoint",
-            "success": False,
-            "error": str(e)
-        })
+    # Get status of all APIs
+    api_status = get_api_status()
     
-    # Overall status
-    results["overall_success"] = all(test.get("success", False) for test in results["tests"])
-    
-    return jsonify(results)
+    return jsonify(api_status)
 
 
 # CSS styles
@@ -393,15 +366,21 @@ if __name__ == '__main__':
     })
 
     port = int(os.environ.get('PORT', 5000))
-    print(f"Starting {APP_NAME} server on port {port}...")
-    print("Available plans:")
+    
+    # Log startup information
+    logger.info(f"Starting {APP_NAME} server on port {port}...")
+    logger.info("Available plans:")
     for plan, details in pricing_plans.items():
-        print(f"  - {plan}: {details['word_limit']} words per round (KES {details['price']})")
-    print("\nDemo account:")
-    print("  Username: demo")
-    print("  Password: demo")
-    print(f"\nHumanizer API URL: {os.environ.get('HUMANIZER_API_URL', 'https://web-production-3db6c.up.railway.app')}")
+        logger.info(f"  - {plan}: {details['word_limit']} words per round (KES {details['price']})")
+    logger.info("\nDemo account:")
+    logger.info("  Username: demo")
+    logger.info("  Password: demo")
+    
+    # Log API URLs
+    humanizer_api_url = os.environ.get('HUMANIZER_API_URL', 'https://web-production-3db6c.up.railway.app')
     admin_api_url = os.environ.get("ADMIN_API_URL", "https://railway-test-api-production.up.railway.app")
-    print(f"Admin API URL: {admin_api_url}")
+    logger.info(f"\nHumanizer API URL: {humanizer_api_url}")
+    logger.info(f"Admin API URL: {admin_api_url}")
+    logger.info(f"API routes available at: http://localhost:{port}/api/v1/")
     
     app.run(host='0.0.0.0', port=port)
