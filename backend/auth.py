@@ -8,9 +8,12 @@ import os
 import jwt
 import datetime
 from functools import wraps
-from flask import request, jsonify, current_app, g
+from flask import request, jsonify, current_app, g, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+
+# Import the user database
+from models import users_db
 
 load_dotenv()
 
@@ -75,23 +78,41 @@ def token_required(f):
     
     return decorated
 
+def login_required_api(f):
+    """Decorator for Flask route that requires login"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'message': 'Login required'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
 def register_user(username, password, email, account_type='free'):
-    """Register a new user (interface to be implemented with your user database)"""
-    # This is a placeholder. In a real implementation, you would:
-    # 1. Check if username or email already exists
-    # 2. Hash the password
-    # 3. Store in database
-    # 4. Return user ID or error
+    """Register a new user"""
+    # Check if username already exists
+    if username in users_db:
+        return None  # Username already exists
     
+    # Hash the password
     hashed_password = generate_password_hash(password)
     
-    # Example implementation with dummy values
-    user_id = f"user_{username}"
+    # Create user entry
+    users_db[username] = {
+        'password': hashed_password,  # Store the hashed password
+        'email': email,
+        'plan': account_type.capitalize(),  # Capitalize for consistency
+        'joined_date': datetime.datetime.now().strftime('%Y-%m-%d'),
+        'words_used': 0,
+        'payment_status': 'Pending' if account_type.lower() != 'free' else 'N/A',
+        'api_keys': {
+            'gpt_zero': '',
+            'originality': ''
+        }
+    }
     
-    # Store in your database here
-    
+    # Return user info
     return {
-        'user_id': user_id,
+        'user_id': username,
         'username': username,
         'email': email,
         'account_type': account_type
@@ -99,17 +120,41 @@ def register_user(username, password, email, account_type='free'):
 
 def authenticate_user(username, password):
     """Authenticate a user with username and password"""
-    # This is a placeholder. In a real implementation, you would:
-    # 1. Look up the user in your database
-    # 2. Verify the password hash
-    # 3. Return user info or None
+    # Check if we have a demo user (from app.py)
+    if username == "demo" and password == "demo" and "demo" in users_db:
+        return {
+            'user_id': 'demo',
+            'username': 'demo',
+            'account_type': 'Basic'
+        }
     
-    # Dummy implementation - replace with database lookup
-    # In a real app, fetch the user from database by username
-    # and verify password with check_password_hash()
+    # Check if username exists
+    if username not in users_db:
+        return None
     
-    # Example check (replace with actual DB lookup)
-    if username == "admin" and password == "admin":  # This is just for testing!
+    # Get stored user data
+    user_data = users_db[username]
+    
+    # Check if password is stored as hash
+    if user_data['password'].startswith('pbkdf2:sha256:') or user_data['password'].startswith('scrypt:'):
+        # Verify hashed password
+        if check_password_hash(user_data['password'], password):
+            return {
+                'user_id': username,
+                'username': username,
+                'account_type': user_data['plan']
+            }
+    else:
+        # Plain text password (only for development!)
+        if user_data['password'] == password:
+            return {
+                'user_id': username,
+                'username': username,
+                'account_type': user_data['plan']
+            }
+    
+    # Admin fallback for testing
+    if username == "admin" and password == "admin":
         return {
             'user_id': 'admin_user',
             'username': 'admin',
