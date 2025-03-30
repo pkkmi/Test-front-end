@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32)))
 
+# Import backend modules for API communication
+from backend.api_service import humanize_text, get_api_status, HumanizerAPIError
+
 # Login decorator
 def login_required(f):
     @wraps(f)
@@ -147,8 +150,11 @@ def humanize():
     message = ""
     humanized_text = ""
     original_text = ""
+    api_response_time = None
+    api_source = "External API"
     
     user_id = session.get('user_id')
+    account_type = session.get('account_type', 'Free')
     
     # Check if user exists
     if user_id not in users_db:
@@ -169,31 +175,43 @@ def humanize():
         
         # Check if user has enough words remaining
         if words_remaining > 0:
-            # Simple humanization simulation
-            lines = original_text.split('\n')
-            humanized_lines = []
-            
-            for line in lines:
-                if not line.strip():
-                    humanized_lines.append(line)
-                    continue
-                    
-                words = line.split()
-                # Mix in some sentence variations
-                if len(words) > 3 and random.random() > 0.7:
-                    transitions = ["moreover", "however", "indeed", "specifically", "naturally"]
-                    idx = random.randint(1, min(3, len(words)-1))
-                    words.insert(idx, random.choice(transitions) + ",")
+            try:
+                # Use the backend API service to humanize text
+                logger.info(f"Sending text to humanizer API for user: {user_id}")
+                start_time = datetime.datetime.now()
                 
-                humanized_lines.append(' '.join(words))
-            
-            humanized_text = '\n'.join(humanized_lines)
-            
-            # Update words used
-            input_word_count = len(original_text.split())
-            users_db[user_id]['words_used'] = words_used + input_word_count
-            
-            message = "Text successfully humanized!"
+                # Call the API through our backend service
+                result = humanize_text(original_text, user_id, account_type)
+                
+                # Extract the humanized text
+                humanized_text = result.get('humanized_text', '')
+                api_response_time = result.get('metrics', {}).get('response_time', None)
+                
+                if 'usage' in result:
+                    words_remaining = result['usage'].get('remaining', words_remaining - 1)
+                
+                # Set the API source
+                if api_response_time is None:
+                    api_source = "Fallback (Local Processing)"
+                
+                # Update words used (this is also done in the API service)
+                input_word_count = len(original_text.split())
+                if 'words_used' not in users_db[user_id]:
+                    users_db[user_id]['words_used'] = 0
+                users_db[user_id]['words_used'] += input_word_count
+                
+                message = "Text successfully humanized!"
+                logger.info(f"Text humanized successfully for user: {user_id}")
+                
+            except HumanizerAPIError as e:
+                message = f"API Error: {str(e)}"
+                logger.error(f"API error for user {user_id}: {str(e)}")
+                flash(message, 'error')
+                
+            except Exception as e:
+                message = f"Unexpected error: {str(e)}"
+                logger.error(f"Unexpected error for user {user_id}: {str(e)}")
+                flash(message, 'error')
         else:
             message = "You have reached your word limit. Please upgrade your plan for more words."
             flash(message, 'warning')
@@ -204,7 +222,9 @@ def humanize():
                                  original_text=original_text,
                                  word_limit=word_limit,
                                  words_used=words_used,
-                                 words_remaining=words_remaining)
+                                 words_remaining=words_remaining,
+                                 api_response_time=api_response_time,
+                                 api_source=api_source)
 
 
 @app.route('/detect', methods=['GET', 'POST'])
@@ -446,15 +466,27 @@ def logout():
     return redirect(url_for('index'))
 
 
+# API status endpoint
+@app.route('/api-test')
+def api_test():
+    """Check the status of the humanizer API"""
+    api_status = get_api_status()
+    return jsonify(api_status)
+
+
 # Diagnostic endpoint for debugging
 @app.route('/debug')
 def debug():
     """Diagnostic endpoint to check users and sessions"""
     debug_users()  # Call debug function to print all users
     
+    # Get API status
+    api_status = get_api_status()
+    
     return jsonify({
         'active_users': len(users_db),
         'session': dict(session),
+        'api_status': api_status,
         'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
 
@@ -512,6 +544,13 @@ if __name__ == '__main__':
     
     # Print all users for debugging at startup
     debug_users()
+    
+    # Check API status at startup
+    api_status = get_api_status()
+    logger.info(f"\nAPI Status: {api_status.get('status', 'unknown')}")
+    if api_status.get('status') != 'online':
+        logger.warning(f"API is not fully operational: {api_status.get('message', 'Unknown error')}")
+        logger.warning("Using fallback mode for text humanization")
     
     # Log API URLs
     humanizer_api_url = os.environ.get('HUMANIZER_API_URL', 'https://web-production-3db6c.up.railway.app')
