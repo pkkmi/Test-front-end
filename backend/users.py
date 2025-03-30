@@ -8,6 +8,9 @@ import time
 import datetime
 from dotenv import load_dotenv
 
+# Import the user database
+from models import users_db
+
 load_dotenv()
 
 # Account type configurations
@@ -39,79 +42,62 @@ ACCOUNT_TYPES = {
     }
 }
 
-# Mock user database (replace with actual database in production)
-# In a real application, this would be stored in a database
-user_db = {
-    # Example user entry
-    'admin_user': {
-        'username': 'admin',
-        'email': 'admin@example.com',
-        'account_type': 'admin',
-        'usage': {
-            'daily': 0,
-            'monthly': 0,
-            'last_reset_day': datetime.datetime.now().day,
-            'last_reset_month': datetime.datetime.now().month
-        }
-    }
-}
-
 def get_user_info(user_id):
     """Get user account information"""
-    if user_id not in user_db:
+    if user_id not in users_db:
         return None
     
-    user = user_db[user_id]
-    check_usage_reset(user_id)  # Check if usage counters need to be reset
+    user_data = users_db[user_id]
     
-    account_type = user['account_type']
+    # Map between the existing structure and the new API
+    account_type = user_data.get('plan', 'Free').lower()
     limits = ACCOUNT_TYPES.get(account_type, ACCOUNT_TYPES['free'])
+    
+    # Calculate usage data
+    words_used = user_data.get('words_used', 0)
+    daily_remaining = max(0, limits['daily_limit'] - words_used)
+    monthly_remaining = max(0, limits['monthly_limit'] - words_used)
     
     return {
         'user_id': user_id,
-        'username': user['username'],
-        'email': user['email'],
+        'username': user_id,
+        'email': user_data.get('email', f'{user_id}@example.com'),
         'account_type': account_type,
+        'joined_date': user_data.get('joined_date', datetime.datetime.now().strftime('%Y-%m-%d')),
+        'payment_status': user_data.get('payment_status', 'Pending'),
         'limits': {
             'daily': limits['daily_limit'],
-            'monthly': limits['monthly_limit']
+            'monthly': limits['monthly_limit'],
+            'remaining': min(daily_remaining, monthly_remaining)
         },
         'usage': {
-            'daily': user['usage']['daily'],
-            'monthly': user['usage']['monthly']
+            'words_used': words_used
         },
         'features': limits['features']
     }
 
 def get_user_rate_limit(user_id, account_type=None):
     """Get user rate limit information"""
-    # If user doesn't exist, create a temporary entry
-    if user_id not in user_db:
+    # Map to existing structure if the user exists
+    if user_id in users_db:
+        user_data = users_db[user_id]
+        if not account_type:
+            account_type = user_data.get('plan', 'Free').lower()
+    else:
         if not account_type:
             account_type = 'free'  # Default to free tier
-        
-        user_db[user_id] = {
-            'username': user_id,
-            'email': f'{user_id}@example.com',
-            'account_type': account_type,
-            'usage': {
-                'daily': 0,
-                'monthly': 0,
-                'last_reset_day': datetime.datetime.now().day,
-                'last_reset_month': datetime.datetime.now().month
-            }
-        }
-    
-    user = user_db[user_id]
-    check_usage_reset(user_id)  # Reset counters if needed
     
     # Get rate limits from account type
-    limits = ACCOUNT_TYPES.get(user['account_type'], ACCOUNT_TYPES['free'])
+    limits = ACCOUNT_TYPES.get(account_type.lower(), ACCOUNT_TYPES['free'])
     
-    # Calculate remaining limits
-    daily_remaining = max(0, limits['daily_limit'] - user['usage']['daily'])
-    monthly_remaining = max(0, limits['monthly_limit'] - user['usage']['monthly'])
-    remaining = min(daily_remaining, monthly_remaining)
+    # If user exists, check actual usage
+    if user_id in users_db:
+        words_used = users_db[user_id].get('words_used', 0)
+        daily_remaining = max(0, limits['daily_limit'] - words_used)
+        monthly_remaining = max(0, limits['monthly_limit'] - words_used)
+        remaining = min(daily_remaining, monthly_remaining)
+    else:
+        remaining = limits['daily_limit']
     
     # Calculate reset times
     now = datetime.datetime.now()
@@ -128,55 +114,43 @@ def get_user_rate_limit(user_id, account_type=None):
         'remaining': remaining,
         'reset_time': daily_reset.strftime('%Y-%m-%d %H:%M:%S'),
         'monthly_limit': limits['monthly_limit'],
-        'monthly_remaining': monthly_remaining,
+        'monthly_remaining': monthly_remaining if 'monthly_remaining' in locals() else limits['monthly_limit'],
         'monthly_reset_time': monthly_reset.strftime('%Y-%m-%d %H:%M:%S')
     }
 
 def increment_user_usage(user_id, count=1):
     """Increment user usage counter"""
-    if user_id not in user_db:
+    if user_id not in users_db:
         return False
     
-    check_usage_reset(user_id)  # Reset counters if needed
-    
-    user_db[user_id]['usage']['daily'] += count
-    user_db[user_id]['usage']['monthly'] += count
-    
+    if 'words_used' not in users_db[user_id]:
+        users_db[user_id]['words_used'] = 0
+        
+    users_db[user_id]['words_used'] += count
     return True
-
-def check_usage_reset(user_id):
-    """Check if usage counters need to be reset"""
-    if user_id not in user_db:
-        return
-    
-    user = user_db[user_id]
-    now = datetime.datetime.now()
-    
-    # Reset daily counter if day changed
-    if user['usage']['last_reset_day'] != now.day:
-        user['usage']['daily'] = 0
-        user['usage']['last_reset_day'] = now.day
-    
-    # Reset monthly counter if month changed
-    if user['usage']['last_reset_month'] != now.month:
-        user['usage']['monthly'] = 0
-        user['usage']['last_reset_month'] = now.month
 
 def update_user_account_type(user_id, new_account_type):
     """Update user account type"""
-    if user_id not in user_db or new_account_type not in ACCOUNT_TYPES:
+    if user_id not in users_db or new_account_type.lower() not in ACCOUNT_TYPES:
         return False
     
-    user_db[user_id]['account_type'] = new_account_type
+    users_db[user_id]['plan'] = new_account_type.capitalize()
+    
+    # Update payment status
+    if new_account_type.lower() != 'free':
+        users_db[user_id]['payment_status'] = 'Pending'
+    else:
+        users_db[user_id]['payment_status'] = 'N/A'
+    
     return True
 
 def check_feature_access(user_id, feature):
     """Check if user has access to a specific feature"""
-    if user_id not in user_db:
+    if user_id not in users_db:
         return False
     
-    user = user_db[user_id]
-    account_type = user['account_type']
+    # Map existing plan to account_type
+    account_type = users_db[user_id].get('plan', 'Free').lower()
     features = ACCOUNT_TYPES.get(account_type, ACCOUNT_TYPES['free'])['features']
     
     return feature in features
