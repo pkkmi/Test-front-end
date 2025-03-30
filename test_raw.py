@@ -1,0 +1,152 @@
+"""
+Test Raw API Access
+Try to hit the API directly with raw HTTP request for maximum compatibility
+"""
+import requests
+import logging
+import sys
+import time
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# API URL
+API_URL = "https://web-production-3db6c.up.railway.app/humanize_text"
+
+def send_raw_request(text):
+    """
+    Send a raw request to the API with minimal formatting
+    Try multiple variations to see what works
+    """
+    # Test case 1: Simple form data with no headers
+    logger.info("\n--- Test 1: Simple form data with no headers ---")
+    try:
+        response = requests.post(API_URL, data={'text': text})
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+    
+    # Test case 2: Form data with content type
+    logger.info("\n--- Test 2: Form data with content type ---")
+    try:
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        response = requests.post(API_URL, data={'text': text}, headers=headers)
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+    
+    # Test case 3: JSON data with each possible key
+    keys = ["text", "input", "content", "original", "source", "query", "q"]
+    for key in keys:
+        logger.info(f"\n--- Test 3.{keys.index(key)+1}: JSON with {key} key ---")
+        try:
+            headers = {'Content-Type': 'application/json'}
+            response = requests.post(API_URL, json={key: text}, headers=headers)
+            logger.info(f"Status: {response.status_code}")
+            logger.info(f"Response: {response.text[:500]}")
+            
+            if response.status_code == 200:
+                return True, response.text
+        except Exception as e:
+            logger.error(f"Error: {str(e)}")
+        
+        # Add delay to avoid rate limiting
+        time.sleep(0.5)
+    
+    # Test case 4: Raw text as body
+    logger.info("\n--- Test 4: Raw text as body ---")
+    try:
+        headers = {'Content-Type': 'text/plain'}
+        response = requests.post(API_URL, data=text, headers=headers)
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+    
+    # Test case 5: URL parameter
+    logger.info("\n--- Test 5: URL parameter ---")
+    try:
+        response = requests.post(f"{API_URL}?text={requests.utils.quote(text)}")
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+    
+    # Test case 6: Multipart form
+    logger.info("\n--- Test 6: Multipart form ---")
+    try:
+        files = {'text': ('text.txt', text)}
+        response = requests.post(API_URL, files=files)
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+    
+    # Test case 7: Custom format - array in JSON
+    logger.info("\n--- Test 7: JSON array ---")
+    try:
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(API_URL, json={"text": [text]}, headers=headers)
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        
+    # Test case 8: Check if API is GET instead of POST
+    logger.info("\n--- Test 8: GET request ---")
+    try:
+        response = requests.get(API_URL, params={'text': text})
+        logger.info(f"Status: {response.status_code}")
+        logger.info(f"Response: {response.text[:500]}")
+        
+        if response.status_code == 200:
+            return True, response.text
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+    
+    return False, "All format attempts failed"
+
+def main():
+    # Get test text from command line if provided
+    if len(sys.argv) > 1:
+        test_text = sys.argv[1]
+    else:
+        test_text = "This text was generated by AI and needs to be humanized to avoid detection."
+    
+    logger.info(f"Testing raw request to API: {API_URL}")
+    logger.info(f"Test text: {test_text}")
+    
+    success, response = send_raw_request(test_text)
+    
+    if success:
+        logger.info("SUCCESS! At least one format worked.")
+        logger.info(f"Response: {response}")
+    else:
+        logger.error("FAILED. All format attempts failed.")
+
+if __name__ == "__main__":
+    main()
