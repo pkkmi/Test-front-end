@@ -1,297 +1,188 @@
 """
-API routes module for Andikar AI.
-This module defines RESTful API endpoints for the application.
+API Routes Module
+Defines REST API endpoints for the backend
 """
 
-from flask import Blueprint, request, jsonify, session, current_app
+from flask import Blueprint, request, jsonify, g
+from flask_restful import Api, Resource
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import time
 import logging
-from models import users_db
-from backend.auth import login_required_api, plan_required, validate_user_credentials, generate_auth_token
-from backend.api_service import humanize_text_api, detect_ai_content_api, get_api_status, ApiRateLimitExceeded, check_rate_limit
-from backend.users import (
-    get_user_by_username, 
-    get_user_account_info,
-    update_user_plan,
-    update_user_usage,
-    check_user_limit,
-    register_new_user,
-    process_payment,
-    update_api_keys
-)
+from functools import wraps
+
+from .auth import token_required, authenticate_user, generate_token, register_user, logout_user
+from .users import get_user_info, get_user_rate_limit, check_feature_access
+from .api_service import humanize_text, get_api_status, HumanizerAPIError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create Blueprint for API routes
-api_bp = Blueprint('api', __name__, url_prefix='/api/v1')
+# Create Blueprint
+api_bp = Blueprint('api', __name__)
 
-# API Routes
-@api_bp.route('/health', methods=['GET'])
-def health_check():
-    """API health check endpoint"""
-    return jsonify({
-        "status": "ok",
-        "message": "Andikar AI API is running"
-    })
+# Initialize rate limiter
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
 
-@api_bp.route('/status', methods=['GET'])
-def api_status():
-    """Get the status of all external APIs"""
-    status = get_api_status()
-    return jsonify(status)
+# Initialize API
+api = Api(api_bp)
 
-@api_bp.route('/auth/login', methods=['POST'])
-def login():
-    """Login endpoint that returns an API token"""
-    data = request.get_json()
-    
-    if not data or 'username' not in data or 'password' not in data:
-        return jsonify({"error": "Username and password are required"}), 400
-    
-    username = data['username']
-    password = data['password']
-    
-    if validate_user_credentials(username, password):
-        # Generate token
-        token = generate_auth_token(username)
+# Request timing middleware
+@api_bp.before_request
+def start_timer():
+    g.start_time = time.time()
+
+@api_bp.after_request
+def log_request(response):
+    if hasattr(g, 'start_time'):
+        total_time = time.time() - g.start_time
+        logger.info(f"Request processed in {total_time:.2f}s: {request.method} {request.path} -> {response.status_code}")
+    return response
+
+# Helper function to require specific features
+def require_feature(feature_name):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not hasattr(g, 'user_id'):
+                return jsonify({'message': 'Authentication required'}), 401
+                
+            if not check_feature_access(g.user_id, feature_name):
+                return jsonify({'message': f'Access to {feature_name} not available with your account type'}), 403
+                
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+# API Resources
+class AuthResource(Resource):
+    def post(self):
+        """Handle user login"""
+        data = request.get_json()
         
-        # Also set session if user is logging in via web
-        session['user_id'] = username
+        if not data:
+            return {'message': 'No input data provided'}, 400
+            
+        username = data.get('username')
+        password = data.get('password')
         
-        return jsonify({
-            "message": "Login successful",
-            "token": token,
-            "user": get_user_by_username(username)
-        })
-    
-    return jsonify({"error": "Invalid credentials"}), 401
-
-@api_bp.route('/auth/logout', methods=['POST'])
-@login_required_api
-def logout():
-    """Logout endpoint"""
-    # Clear session
-    session.pop('user_id', None)
-    
-    return jsonify({"message": "Logout successful"})
-
-@api_bp.route('/auth/register', methods=['POST'])
-def register():
-    """Register a new user"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-    
-    # Extract required fields
-    username = data.get('username')
-    password = data.get('password')
-    email = data.get('email')
-    
-    if not username or not password or not email:
-        return jsonify({"error": "Username, password, and email are required"}), 400
-    
-    # Extract optional fields
-    plan_type = data.get('plan_type')
-    phone = data.get('phone')
-    
-    # Register user
-    success, message = register_new_user(
-        username=username,
-        password=password,
-        email=email,
-        plan_type=plan_type,
-        phone=phone
-    )
-    
-    if success:
-        # Generate token for immediate login
-        token = generate_auth_token(username)
+        if not username or not password:
+            return {'message': 'Username and password are required'}, 400
+            
+        user = authenticate_user(username, password)
         
-        return jsonify({
-            "message": message,
-            "token": token,
-            "user": get_user_by_username(username)
-        }), 201
-    
-    return jsonify({"error": message}), 400
+        if not user:
+            return {'message': 'Invalid username or password'}, 401
+            
+        token = generate_token(user['user_id'], user['account_type'])
+        
+        return {
+            'message': 'Login successful',
+            'token': token,
+            'user': {
+                'user_id': user['user_id'],
+                'username': user['username'],
+                'account_type': user['account_type']
+            }
+        }, 200
 
-@api_bp.route('/user/profile', methods=['GET'])
-@login_required_api
-def get_profile():
-    """Get user profile information"""
-    username = request.username
-    
-    user_info = get_user_account_info(username)
-    
-    if not user_info:
-        return jsonify({"error": "User not found"}), 404
-    
-    return jsonify(user_info)
+class RegisterResource(Resource):
+    def post(self):
+        """Handle user registration"""
+        data = request.get_json()
+        
+        if not data:
+            return {'message': 'No input data provided'}, 400
+            
+        username = data.get('username')
+        password = data.get('password')
+        email = data.get('email')
+        
+        if not username or not password or not email:
+            return {'message': 'Username, password, and email are required'}, 400
+            
+        user = register_user(username, password, email)
+        
+        return {
+            'message': 'User registered successfully',
+            'user': {
+                'user_id': user['user_id'],
+                'username': user['username'],
+                'email': user['email'],
+                'account_type': user['account_type']
+            }
+        }, 201
 
-@api_bp.route('/user/update-plan', methods=['POST'])
-@login_required_api
-def update_plan():
-    """Update user subscription plan"""
-    username = request.username
-    data = request.get_json()
-    
-    if not data or 'plan' not in data:
-        return jsonify({"error": "New plan is required"}), 400
-    
-    new_plan = data['plan']
-    
-    success, message = update_user_plan(username, new_plan)
-    
-    if success:
-        return jsonify({"message": message, "plan": new_plan})
-    
-    return jsonify({"error": message}), 400
+class LogoutResource(Resource):
+    @token_required
+    def post(self):
+        """Handle user logout"""
+        user_id = g.user_id
+        logout_user(user_id)
+        
+        return {
+            'message': 'Logout successful'
+        }, 200
 
-@api_bp.route('/user/payment', methods=['POST'])
-@login_required_api
-def make_payment():
-    """Process a payment"""
-    username = request.username
-    data = request.get_json()
-    
-    if not data or 'phone_number' not in data:
-        return jsonify({"error": "Phone number is required"}), 400
-    
-    phone_number = data['phone_number']
-    amount = data.get('amount')  # Optional, will use plan price if not specified
-    
-    success, message, transaction_id = process_payment(username, phone_number, amount)
-    
-    if success:
-        return jsonify({
-            "message": message,
-            "transaction_id": transaction_id,
-            "payment_status": "Paid"
-        })
-    
-    return jsonify({"error": message}), 400
+class UserResource(Resource):
+    @token_required
+    def get(self):
+        """Get user account information"""
+        user_id = g.user_id
+        user_info = get_user_info(user_id)
+        
+        if not user_info:
+            return {'message': 'User not found'}, 404
+            
+        return user_info, 200
 
-@api_bp.route('/user/update-api-keys', methods=['POST'])
-@login_required_api
-def api_keys():
-    """Update user API keys"""
-    username = request.username
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-    
-    gpt_zero_key = data.get('gpt_zero_key')
-    originality_key = data.get('originality_key')
-    
-    if update_api_keys(username, gpt_zero_key, originality_key):
-        return jsonify({"message": "API keys updated successfully"})
-    
-    return jsonify({"error": "Failed to update API keys"}), 400
+class HumanizeResource(Resource):
+    @token_required
+    @limiter.limit("10 per minute")
+    def post(self):
+        """Humanize text through the API"""
+        data = request.get_json()
+        
+        if not data:
+            return {'message': 'No input data provided'}, 400
+            
+        text = data.get('text')
+        
+        if not text:
+            return {'message': 'Text is required'}, 400
+            
+        user_id = g.user_id
+        account_type = g.account_type
+        
+        try:
+            result = humanize_text(text, user_id, account_type)
+            return result, 200
+        except HumanizerAPIError as e:
+            return {'message': str(e)}, 429
+        except Exception as e:
+            logger.error(f"Error in humanize endpoint: {str(e)}")
+            return {'message': 'An error occurred while processing your request'}, 500
 
-@api_bp.route('/humanize', methods=['POST'])
-@login_required_api
-@plan_required('Free')  # At least Free plan required
-def humanize_text():
-    """Humanize AI-generated text"""
-    username = request.username
-    user = request.user
-    data = request.get_json()
-    
-    if not data or 'text' not in data:
-        return jsonify({"error": "Text to humanize is required"}), 400
-    
-    text = data['text']
-    
-    # Check payment status for paid plans
-    if user['plan'] != 'Free' and user['payment_status'] != 'Paid':
-        return jsonify({
-            "error": "Payment required to access this feature",
-            "payment_required": True
-        }), 402
-    
-    # Check word limit
-    has_exceeded, remaining = check_user_limit(username)
-    if has_exceeded:
-        return jsonify({
-            "error": "Word limit exceeded for your plan",
-            "remaining_words": 0,
-            "upgrade_required": True
-        }), 403
-    
-    # Check rate limit
-    try:
-        check_rate_limit(username, user['plan'])
-    except ApiRateLimitExceeded as e:
-        return jsonify({"error": str(e), "rate_limited": True}), 429
-    
-    # Process the text
-    humanized_text, message, status_code = humanize_text_api(text, user['plan'])
-    
-    if status_code != 200:
-        return jsonify({"error": message}), status_code
-    
-    # Update word usage
-    word_count = len(text.split())
-    update_user_usage(username, word_count)
-    
-    return jsonify({
-        "original_text": text,
-        "humanized_text": humanized_text,
-        "message": message,
-        "words_processed": word_count,
-        "remaining_words": max(0, remaining - word_count)
-    })
+class StatusResource(Resource):
+    def get(self):
+        """Get API status"""
+        api_status = get_api_status()
+        return api_status, 200
 
-@api_bp.route('/detect', methods=['POST'])
-@login_required_api
-@plan_required('Basic')  # At least Basic plan required
-def detect_ai():
-    """Detect if text is AI-generated"""
-    username = request.username
-    user = request.user
-    data = request.get_json()
-    
-    if not data or 'text' not in data:
-        return jsonify({"error": "Text to analyze is required"}), 400
-    
-    text = data['text']
-    
-    # Check payment status
-    if user['payment_status'] != 'Paid':
-        return jsonify({
-            "error": "Payment required to access this feature",
-            "payment_required": True
-        }), 402
-    
-    # Check rate limit
-    try:
-        check_rate_limit(username, user['plan'])
-    except ApiRateLimitExceeded as e:
-        return jsonify({"error": str(e), "rate_limited": True}), 429
-    
-    # Get API keys if available
-    api_keys = user.get('api_keys', {})
-    
-    # Process the text
-    result, message, status_code = detect_ai_content_api(text, api_keys)
-    
-    if status_code != 200:
-        return jsonify({"error": message}), status_code
-    
-    return jsonify({
-        "result": result,
-        "message": message
-    })
+# Register resources
+api.add_resource(AuthResource, '/auth/login')
+api.add_resource(RegisterResource, '/auth/register')
+api.add_resource(LogoutResource, '/auth/logout')
+api.add_resource(UserResource, '/user')
+api.add_resource(HumanizeResource, '/humanize')
+api.add_resource(StatusResource, '/status')
 
-# Error handlers
-@api_bp.errorhandler(404)
-def not_found(error):
-    return jsonify({"error": "Endpoint not found"}), 404
-
-@api_bp.errorhandler(500)
-def server_error(error):
-    logger.error(f"Server error: {error}")
-    return jsonify({"error": "Internal server error"}), 500
+# Initialize Blueprint
+def init_app(app):
+    """Initialize the API with the Flask app"""
+    limiter.init_app(app)
+    app.register_blueprint(api_bp, url_prefix='/api/v1')
