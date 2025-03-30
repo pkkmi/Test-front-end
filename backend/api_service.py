@@ -49,109 +49,50 @@ def humanize_text(text, user_id, account_type):
     # Construct the full API URL
     api_url = f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
     
-    # Track successful format
-    success_format = None
+    # Based on the error messages, the API expects a JSON with input_text field
+    headers = {
+        'Content-Type': 'application/json'
+    }
     
-    # Try different request formats
-    formats_to_try = [
-        # Format 1: application/x-www-form-urlencoded (form data)
-        {
-            'method': 'post',
-            'headers': {'Content-Type': 'application/x-www-form-urlencoded'},
-            'data': {'text': text},
-            'description': 'Form data'
-        },
-        # Format 2: JSON with 'text' key
-        {
-            'method': 'post',
-            'headers': {'Content-Type': 'application/json'},
-            'json': {'text': text},
-            'description': 'JSON with text key'
-        },
-        # Format 3: JSON with 'input' key
-        {
-            'method': 'post',
-            'headers': {'Content-Type': 'application/json'},
-            'json': {'input': text},
-            'description': 'JSON with input key'
-        },
-        # Format 4: JSON with 'content' key
-        {
-            'method': 'post',
-            'headers': {'Content-Type': 'application/json'},
-            'json': {'content': text},
-            'description': 'JSON with content key'
-        },
-        # Format 5: JSON with 'message' key
-        {
-            'method': 'post',
-            'headers': {'Content-Type': 'application/json'},
-            'json': {'message': text},
-            'description': 'JSON with message key'
-        },
-        # Format 6: Plain text
-        {
-            'method': 'post',
-            'headers': {'Content-Type': 'text/plain'},
-            'data': text,
-            'description': 'Plain text'
-        },
-        # Format 7: Query parameters
-        {
-            'method': 'post',
-            'params': {'text': text},
-            'description': 'Query parameters'
-        }
-    ]
+    # Create the payload using the input_text field
+    payload = {
+        "input_text": text
+    }
     
     # Log request information
     logger.info(f"Sending request to API: {api_url}")
-    logger.info(f"Text length: {len(text)} characters")
-    
-    # Track errors for all formats
-    errors = []
+    logger.info(f"Request payload: {json.dumps(payload)}")
     
     # Make the request with error handling
     try:
         start_time = time.time()
         
-        # Try each format until one works
-        response = None
+        # Make the POST request
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers=headers,
+            timeout=30  # 30 second timeout
+        )
         
-        for fmt in formats_to_try:
+        # Log response details for debugging
+        logger.info(f"Response status code: {response.status_code}")
+        logger.info(f"Response headers: {dict(response.headers)}")
+        logger.info(f"Response content (sample): {response.text[:200] if response.text else 'Empty'}")
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            error_message = f"API request failed with status code {response.status_code}"
             try:
-                logger.info(f"Trying format: {fmt['description']}")
-                
-                # Setup request arguments
-                request_args = {k: v for k, v in fmt.items() if k not in ['method', 'description']}
-                request_args['timeout'] = 30  # 30 second timeout
-                
-                # Make the request
-                if fmt['method'] == 'post':
-                    response = requests.post(api_url, **request_args)
-                else:
-                    response = requests.get(api_url, **request_args)
-                
-                # Log response details for debugging
-                logger.info(f"Response status code: {response.status_code}")
-                logger.info(f"Response headers: {dict(response.headers)}")
-                logger.info(f"Response content (sample): {response.text[:200] if response.text else 'Empty'}")
-                
-                # If successful, stop trying
-                if response.status_code == 200:
-                    success_format = fmt['description']
-                    logger.info(f"Successful format: {success_format}")
-                    break
-                else:
-                    errors.append(f"{fmt['description']}: {response.status_code} - {response.text[:100]}")
-                    
-            except Exception as e:
-                errors.append(f"{fmt['description']}: {str(e)}")
-                continue
-        
-        # If all formats failed
-        if not response or response.status_code != 200:
-            error_message = f"All API request formats failed. Errors: {'; '.join(errors)}"
+                error_data = response.json()
+                if 'detail' in error_data:
+                    error_message += f": {json.dumps(error_data['detail'])}"
+                elif 'error' in error_data:
+                    error_message += f": {error_data['error']}"
+            except:
+                if response.text:
+                    error_message += f": {response.text[:200]}"
+            
             logger.error(error_message)
             raise HumanizerAPIError(error_message)
         
@@ -167,23 +108,18 @@ def humanize_text(text, user_id, account_type):
             logger.info("Response was not JSON, using plain text")
         
         # Get the humanized text from the response
-        # Check all possible keys where the result might be
-        possible_keys = ['humanized_text', 'result', 'text', 'output', 'response', 'content']
-        
-        humanized_text = None
-        for key in possible_keys:
-            if key in result:
-                humanized_text = result[key]
-                logger.info(f"Found result in key: {key}")
-                break
-        
-        if not humanized_text and isinstance(result, str):
-            humanized_text = result
-        
-        if not humanized_text:
-            # Just use the full response text if we couldn't parse it
+        # Based on testing, find the appropriate key for the result
+        if 'humanized_text' in result:
+            humanized_text = result['humanized_text']
+        elif 'output_text' in result:
+            humanized_text = result['output_text']
+        elif 'result' in result:
+            humanized_text = result['result']
+        elif 'output' in result:
+            humanized_text = result['output']
+        else:
+            # Default to the full response text if no recognized key
             humanized_text = response.text
-            logger.info("Using full response text as result")
         
         response_time = time.time() - start_time
         
@@ -199,8 +135,7 @@ def humanize_text(text, user_id, account_type):
             'humanized_text': humanized_text,
             'metrics': {
                 'response_time': response_time,
-                'characters_processed': len(text),
-                'success_format': success_format
+                'characters_processed': len(text)
             },
             'usage': {
                 'remaining': rate_limit['remaining'] - 1
@@ -220,53 +155,33 @@ def get_api_status():
         # Try to access the humanize endpoint with a minimal request
         api_url = f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
         
-        # Try different formats
-        formats_to_try = [
-            # Form data
-            {'data': {'text': 'Test'}, 'headers': {'Content-Type': 'application/x-www-form-urlencoded'}},
-            # JSON
-            {'json': {'text': 'Test'}, 'headers': {'Content-Type': 'application/json'}},
-            # Plain text
-            {'data': 'Test', 'headers': {'Content-Type': 'text/plain'}},
-            # Query parameters
-            {'params': {'text': 'Test'}}
-        ]
+        # Use the correct format with input_text field
+        headers = {'Content-Type': 'application/json'}
+        payload = {"input_text": "Test connection"}
         
-        for fmt in formats_to_try:
-            try:
-                response = requests.post(
-                    api_url,
-                    timeout=5,
-                    **fmt
-                )
-                
-                if response.status_code == 200:
-                    return {
-                        'status': 'online',
-                        'latency': response.elapsed.total_seconds(),
-                        'endpoint': HUMANIZE_ENDPOINT,
-                        'format': str(fmt),
-                        'full_url': api_url
-                    }
-                elif response.status_code != 422:  # Ignore 422 (invalid format)
-                    return {
-                        'status': 'degraded',
-                        'latency': response.elapsed.total_seconds(),
-                        'message': f"API returned status code {response.status_code}",
-                        'endpoint': HUMANIZE_ENDPOINT,
-                        'format': str(fmt),
-                        'full_url': api_url
-                    }
-            except:
-                continue
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers=headers,
+            timeout=5
+        )
         
-        # If we get here, all formats failed
-        return {
-            'status': 'offline',
-            'message': "Unable to connect with any request format",
-            'endpoint': HUMANIZE_ENDPOINT,
-            'full_url': api_url
-        }
+        if response.status_code == 200:
+            return {
+                'status': 'online',
+                'latency': response.elapsed.total_seconds(),
+                'endpoint': HUMANIZE_ENDPOINT,
+                'full_url': api_url
+            }
+        else:
+            return {
+                'status': 'degraded',
+                'latency': response.elapsed.total_seconds(),
+                'message': f"API returned status code {response.status_code}",
+                'endpoint': HUMANIZE_ENDPOINT,
+                'full_url': api_url,
+                'response': response.text[:200]
+            }
             
     except Exception as e:
         return {
