@@ -20,3 +20,7 @@ email-validator==2.0.0
 # API and rate limiting
 Flask-RESTful==0.3.10
 Flask-Limiter==3.3.1
+
+# Database
+pymongo==4.6.1
+dnspython==2.4.2
