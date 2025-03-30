@@ -1,110 +1,99 @@
 # Andikar AI Backend
 
-This directory contains the backend implementation for the Andikar AI frontend application. The backend provides secure API access, user authentication, and data management services.
+This is the backend implementation for the Andikar AI system that humanizes AI-generated text. The backend handles user authentication, API communication, and business logic, providing a secure layer between the frontend and external APIs.
+
+## Features
+
+- **Secure Authentication**: JWT-based authentication for frontend and API access
+- **User Management**: Account information, subscription plans, and usage tracking
+- **API Integration**: Secure communication with the Humanizer API
+- **Rate Limiting**: Prevents API abuse based on subscription plan
+- **RESTful API**: Complete API for frontend and potential third-party integration
 
 ## Architecture
 
-The backend is integrated with the Flask frontend and provides the following features:
+The backend is structured into several modules:
 
-1. **User Authentication and Authorization**
-   - Secure login and session management
-   - API token generation and validation (JWT-based)
-   - User permission checking based on subscription plan
-
-2. **API Service Layer**
-   - Secure communication with external APIs
-   - Error handling and retry mechanisms
-   - Rate limiting to prevent abuse
-   - Caching for performance optimization
-
-3. **User Account Management**
-   - User registration and profile management
-   - Subscription plan handling
-   - Payment processing
-   - Usage tracking
-
-4. **RESTful API Endpoints**
-   - Provides a complete REST API for frontend and potential third-party integrations
-   - Versioned API routes (/api/v1/...)
-   - Proper error responses and status codes
-
-## Module Structure
-
-- **auth.py**: Authentication and authorization services
-- **api_service.py**: External API communication layer
-- **users.py**: User data and account management
-- **api_routes.py**: RESTful API endpoint definitions
+- `auth.py`: Handles user authentication and authorization
+- `users.py`: Manages user accounts, rate limits, and subscription plans
+- `api_service.py`: Communicates with the external humanization API
+- `api_routes.py`: Defines RESTful API endpoints for the frontend
 
 ## API Endpoints
 
-The backend exposes the following API endpoints:
+The backend exposes RESTful API endpoints at `/api/v1/`:
 
-### Authentication
+- `/api/v1/auth/login`: User login, returns JWT token
+- `/api/v1/auth/register`: User registration
+- `/api/v1/auth/logout`: User logout
+- `/api/v1/user`: Get user account information
+- `/api/v1/humanize`: Humanize text through the API
+- `/api/v1/status`: Get API status
 
-- `GET /api/v1/health`: Health check endpoint
-- `GET /api/v1/status`: External API status check
-- `POST /api/v1/auth/login`: User login (returns JWT token)
-- `POST /api/v1/auth/logout`: User logout
-- `POST /api/v1/auth/register`: User registration
+## Authentication Flow
 
-### User Management
+1. User logs in through the frontend
+2. Backend validates credentials and returns a JWT token
+3. Frontend stores token and includes it in subsequent requests
+4. Backend validates token for protected routes
 
-- `GET /api/v1/user/profile`: Get user profile information
-- `POST /api/v1/user/update-plan`: Update subscription plan
-- `POST /api/v1/user/payment`: Process a payment
-- `POST /api/v1/user/update-api-keys`: Update user API keys
+## Text Humanization Flow
 
-### Text Processing
+1. User enters text in the frontend
+2. Frontend sends text to backend API
+3. Backend validates user authentication and checks rate limits
+4. Backend calls external API securely
+5. Backend returns humanized text to frontend
+6. Frontend displays results to user
 
-- `POST /api/v1/humanize`: Humanize AI-generated text
-- `POST /api/v1/detect`: Detect if text is AI-generated
+## Configuration
 
-## Authentication
+The backend uses environment variables for configuration:
 
-The backend uses JWT (JSON Web Tokens) for API authentication. To use the API:
+- `JWT_SECRET`: Secret key for JWT token generation
+- `JWT_EXPIRATION`: Token expiration time in seconds
+- `HUMANIZER_API_URL`: URL of the external humanization API
+- `HUMANIZER_API_KEY`: API key for the external API
 
-1. Obtain a token by calling the login endpoint with valid credentials
-2. Include the token in the Authorization header for subsequent requests:
-   ```
-   Authorization: Bearer <your_token>
-   ```
+## Extending the Backend
 
-## Security Measures
+To extend the backend:
+
+1. Add new modules to the `backend` directory
+2. Update `api_routes.py` to include new endpoints
+3. Update the main app to include new functionality
+
+## Security
 
 The backend implements several security measures:
 
-1. Rate limiting to prevent abuse
-2. Permission checking based on user plan
-3. Secure token-based authentication
-4. Input validation to prevent injection attacks
-5. Error handling that doesn't leak sensitive information
+- JWT-based authentication
+- Password hashing
+- Rate limiting
+- Input validation
+- Error handling
 
-## Future Enhancements
+## Integration with Frontend
 
-Planned enhancements for future versions:
+The backend integrates with the frontend through:
 
-1. Database integration for persistent storage
-2. Email verification system
-3. Enhanced analytics and usage reporting
-4. OAuth integration for third-party authentication
-5. Additional payment gateways
-6. Webhooks for integration with other services
+1. JWT-based authentication
+2. RESTful API endpoints
+3. Session management
 
-## Usage Example
+## Development
 
-```python
-import requests
+To run the backend for development:
 
-# Login to get a token
-response = requests.post('http://localhost:5000/api/v1/auth/login', 
-                        json={'username': 'demo', 'password': 'demo'})
-token = response.json()['token']
+1. Clone the repository
+2. Install dependencies with `pip install -r requirements.txt`
+3. Set up environment variables
+4. Run the Flask app with `python app.py`
 
-# Use the token to access protected endpoints
-headers = {'Authorization': f'Bearer {token}'}
-response = requests.post('http://localhost:5000/api/v1/humanize',
-                        headers=headers,
-                        json={'text': 'Your AI-generated text here'})
+## Testing
 
-print(response.json()['humanized_text'])
-```
+To test the backend:
+
+1. Use the `api-test` endpoint at `/api-test`
+2. Check API status at `/api/v1/status`
+3. Test authentication with `/api/v1/auth/login`
