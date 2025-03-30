@@ -9,7 +9,6 @@ import logging
 from functools import wraps
 
 from config import APP_NAME, pricing_plans
-from models import users_db, transactions_db
 from templates import html_templates
 from debug_file import debug_users  # Import debug utility
 
@@ -24,8 +23,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32)))
 
-# Import backend modules for API communication
+# Import backend modules for API communication and database
 from backend.api_service import humanize_text, get_api_status, HumanizerAPIError
+from backend.db import get_user, create_user, authenticate_user, update_user_usage, update_user_plan, get_user_transactions, init_db, create_transaction
 
 # Login decorator
 def login_required(f):
@@ -52,27 +52,17 @@ def login():
         
         logger.info(f"Login attempt for user: {username}")
         
-        # Handle demo account directly
-        if username == 'demo' and password == 'demo':
-            session['user_id'] = 'demo'
-            session['account_type'] = 'Basic'
-            flash('Demo login successful!', 'success')
-            return redirect(url_for('dashboard'))
-            
-        # Handle other users
-        if username in users_db:
-            stored_password = users_db[username].get('password')
-            
-            # Simple plain text password check (for demo purposes only)
-            if stored_password == password:
-                session['user_id'] = username
-                session['account_type'] = users_db[username].get('plan', 'Free')
-                flash('Login successful!', 'success')
-                return redirect(url_for('dashboard'))
+        # Authenticate user using DB
+        user = authenticate_user(username, password)
         
-        # Failed login
-        flash('Invalid username or password', 'error')
-        logger.warning(f"Failed login attempt for user: {username}")
+        if user:
+            session['user_id'] = user['user_id']
+            session['account_type'] = user['account_type']
+            flash('Login successful!', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password', 'error')
+            logger.warning(f"Failed login attempt for user: {username}")
 
     return render_template_string(html_templates['login.html'])
 
@@ -87,31 +77,14 @@ def register():
         
         logger.info(f"Registration attempt for user: {username}")
         
-        # Check if username already exists
-        if username in users_db:
-            flash('Username already exists. Please choose another.', 'error')
-            return render_template_string(html_templates['register.html'], pricing_plans=pricing_plans)
+        # Create user in database
+        user = create_user(username, password, email, plan_type)
         
-        # Create new user
-        users_db[username] = {
-            'password': password,  # For a real app, use hashing
-            'plan': plan_type,
-            'joined_date': datetime.datetime.now().strftime('%Y-%m-%d'),
-            'words_used': 0,
-            'payment_status': 'Pending' if plan_type != 'Free' else 'N/A',
-            'api_keys': {
-                'gpt_zero': '',
-                'originality': ''
-            },
-            'email': email
-        }
-        
-        # Log created user
-        logger.info(f"New user registered: {username}")
-        debug_users()  # Print all users for debugging
-        
-        flash('Registration successful! Please log in.', 'success')
-        return redirect(url_for('login'))
+        if user:
+            flash('Registration successful! Please log in.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Registration failed. Username may already exist.', 'error')
 
     return render_template_string(html_templates['register.html'], pricing_plans=pricing_plans)
 
@@ -121,20 +94,19 @@ def register():
 def dashboard():
     user_id = session.get('user_id')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
-    
-    # Get user data
-    user_data = users_db[user_id]
     
     # Format user data for template
     user_info = {
         'username': user_id,
         'email': user_data.get('email', f"{user_id}@example.com"),
         'plan': user_data.get('plan', 'Free'),
-        'joined_date': user_data.get('joined_date', 'Unknown'),
+        'joined_date': user_data.get('joined_date').strftime('%Y-%m-%d') if user_data.get('joined_date') else 'Unknown',
         'words_used': user_data.get('words_used', 0),
         'payment_status': user_data.get('payment_status', 'Pending')
     }
@@ -155,16 +127,15 @@ def humanize():
     user_id = session.get('user_id')
     account_type = session.get('account_type', 'Free')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
     
-    # Get user data
-    user_data = users_db[user_id]
-    plan_type = user_data.get('plan', 'Free')
-    
     # Get word limit from plan
+    plan_type = user_data.get('plan', 'Free')
     word_limit = pricing_plans[plan_type]['word_limit']
     words_used = user_data.get('words_used', 0)
     words_remaining = max(0, word_limit - words_used)
@@ -188,11 +159,9 @@ def humanize():
                 if not humanized_text:
                     raise HumanizerAPIError("API returned empty response")
                 
-                # Update words used in local database
+                # Update words used in database
                 input_word_count = len(original_text.split())
-                if 'words_used' not in users_db[user_id]:
-                    users_db[user_id]['words_used'] = 0
-                users_db[user_id]['words_used'] += input_word_count
+                update_user_usage(user_id, input_word_count)
                 
                 message = "Text successfully humanized!"
                 logger.info(f"Text humanized successfully for user: {user_id}")
@@ -228,13 +197,14 @@ def detect():
     
     user_id = session.get('user_id')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
     
-    # Get user data
-    user_data = users_db[user_id]
+    # Get user plan
     plan_type = user_data.get('plan', 'Free')
     
     # Check if user has access to detection feature
@@ -274,34 +244,43 @@ def detect():
 
 @app.route('/account')
 @login_required
-def account():
+def dashboard():
     user_id = session.get('user_id')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
-    
-    # Get user data
-    user_data = users_db[user_id]
     
     # Format user data for template
     user_info = {
         'username': user_id,
         'email': user_data.get('email', f"{user_id}@example.com"),
         'plan': user_data.get('plan', 'Free'),
-        'joined_date': user_data.get('joined_date', 'Unknown'),
+        'joined_date': user_data.get('joined_date').strftime('%Y-%m-%d') if user_data.get('joined_date') else 'Unknown',
         'words_used': user_data.get('words_used', 0),
         'payment_status': user_data.get('payment_status', 'Pending')
     }
     
     # Get user transactions
-    user_transactions = [t for t in transactions_db if t.get('user_id') == user_id]
+    transactions = get_user_transactions(user_id)
+    
+    # Format transactions for display
+    formatted_transactions = []
+    for t in transactions:
+        formatted_transactions.append({
+            'transaction_id': t.get('transaction_id', ''),
+            'date': t.get('date').strftime('%Y-%m-%d %H:%M:%S') if t.get('date') else '',
+            'amount': t.get('amount', 0),
+            'status': t.get('status', 'Pending')
+        })
     
     return render_template_string(html_templates['account.html'], 
                                  user=user_info,
                                  plan=pricing_plans[user_info['plan']],
-                                 transactions=user_transactions)
+                                 transactions=formatted_transactions)
 
 
 @app.route('/api-integration', methods=['GET', 'POST'])
@@ -309,13 +288,14 @@ def account():
 def api_integration():
     user_id = session.get('user_id')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
     
-    # Get user data
-    user_data = users_db[user_id]
+    # Get user plan
     plan_type = user_data.get('plan', 'Free')
     
     # Check if user has API access
@@ -330,18 +310,15 @@ def api_integration():
         gpt_zero_key = request.form.get('gpt_zero_key', '')
         originality_key = request.form.get('originality_key', '')
         
-        # Update API keys
-        if 'api_keys' not in users_db[user_id]:
-            users_db[user_id]['api_keys'] = {}
-        
-        users_db[user_id]['api_keys']['gpt_zero'] = gpt_zero_key
-        users_db[user_id]['api_keys']['originality'] = originality_key
+        # Update API keys in database
+        from backend.db import update_api_keys
+        update_api_keys(user_id, gpt_zero_key, originality_key)
         
         flash('API keys updated successfully!', 'success')
         return redirect(url_for('api_integration'))
 
     return render_template_string(html_templates['api_integration.html'],
-                                 api_keys=users_db[user_id].get('api_keys', {}))
+                                 api_keys=user_data.get('api_keys', {}))
 
 
 @app.route('/faq')
@@ -369,13 +346,14 @@ def pricing():
 def payment():
     user_id = session.get('user_id')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
     
-    # Get user data
-    user_data = users_db[user_id]
+    # Get user plan
     plan_type = user_data.get('plan', 'Free')
     
     if request.method == 'POST':
@@ -384,24 +362,14 @@ def payment():
         # Get plan price
         amount = pricing_plans[plan_type]['price']
 
-        # Simulate successful payment
-        transaction_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+        # Create transaction in database
+        transaction = create_transaction(user_id, amount, phone_number)
         
-        # Add transaction to database
-        transactions_db.append({
-            'transaction_id': transaction_id,
-            'user_id': user_id,
-            'phone_number': phone_number,
-            'amount': amount,
-            'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'status': 'Completed'
-        })
-        
-        # Update payment status
-        users_db[user_id]['payment_status'] = 'Paid'
-        
-        flash('Payment processed successfully!', 'success')
-        return redirect(url_for('account'))
+        if transaction:
+            flash('Payment processed successfully!', 'success')
+            return redirect(url_for('account'))
+        else:
+            flash('Payment processing failed. Please try again.', 'error')
 
     return render_template_string(html_templates['payment.html'],
                                  plan=pricing_plans[plan_type])
@@ -412,28 +380,23 @@ def payment():
 def upgrade():
     user_id = session.get('user_id')
     
-    # Check if user exists
-    if user_id not in users_db:
+    # Get user data from database
+    user_data = get_user(user_id)
+    
+    if not user_data:
         flash('User account not found. Please log in again.', 'error')
         return redirect(url_for('logout'))
     
-    # Get user data
-    user_data = users_db[user_id]
+    # Get user plan
     current_plan = user_data.get('plan', 'Free')
     
     if request.method == 'POST':
         new_plan = request.form['new_plan']
         
-        # Update user plan
-        if new_plan in pricing_plans:
-            users_db[user_id]['plan'] = new_plan
-            
-            # Update payment status
-            if new_plan != 'Free':
-                users_db[user_id]['payment_status'] = 'Pending'
-            else:
-                users_db[user_id]['payment_status'] = 'N/A'
-            
+        # Update user plan in database
+        success = update_user_plan(user_id, new_plan)
+        
+        if success:
             flash(f'Plan upgraded to {new_plan} successfully!', 'success')
             
             # Redirect to payment if needed
@@ -441,7 +404,7 @@ def upgrade():
                 return redirect(url_for('payment'))
             return redirect(url_for('account'))
         else:
-            flash('Invalid plan selected', 'error')
+            flash('Failed to upgrade plan', 'error')
             return redirect(url_for('upgrade'))
 
     # Get available plans
@@ -471,8 +434,6 @@ def api_test():
 @app.route('/debug')
 def debug():
     """Diagnostic endpoint to check users and sessions"""
-    debug_users()  # Call debug function to print all users
-    
     # Get API status
     api_status = get_api_status()
     
@@ -480,7 +441,6 @@ def debug():
     humanizer_api_url = os.environ.get('HUMANIZER_API_URL', 'https://web-production-3db6c.up.railway.app')
     
     return jsonify({
-        'active_users': len(users_db),
         'session': dict(session),
         'api_status': api_status,
         'api_url': humanizer_api_url,
@@ -506,29 +466,9 @@ def serve_js():
 
 
 if __name__ == '__main__':
-    # Add a sample user for quick testing
-    users_db['demo'] = {
-        'password': 'demo',
-        'plan': 'Basic',
-        'joined_date': datetime.datetime.now().strftime('%Y-%m-%d'),
-        'words_used': 125,
-        'payment_status': 'Paid',
-        'api_keys': {
-            'gpt_zero': '',
-            'originality': ''
-        }
-    }
-
-    # Create a sample transaction
-    transactions_db.append({
-        'transaction_id': 'TXND3M0123456',
-        'user_id': 'demo',
-        'phone_number': '254712345678',
-        'amount': pricing_plans['Basic']['price'],
-        'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'status': 'Completed'
-    })
-
+    # Initialize the database
+    init_db()
+    
     port = int(os.environ.get('PORT', 5000))
     
     # Log startup information
@@ -536,12 +476,6 @@ if __name__ == '__main__':
     logger.info("Available plans:")
     for plan, details in pricing_plans.items():
         logger.info(f"  - {plan}: {details['word_limit']} words per round (KES {details['price']})")
-    logger.info("\nDemo account:")
-    logger.info("  Username: demo")
-    logger.info("  Password: demo")
-    
-    # Print all users for debugging at startup
-    debug_users()
     
     # Check API status at startup
     api_status = get_api_status()
