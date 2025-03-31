@@ -3,6 +3,7 @@ import os
 import logging
 from datetime import datetime
 import json
+import traceback
 
 # Import backend modules
 from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
@@ -10,21 +11,47 @@ from backend.db import (init_db, add_user, verify_user, get_user, get_all_tiers,
                        get_tier_info, update_user_tier, get_word_limit)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)  # Changed to DEBUG for more detailed logs
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'andikar-ai-development-key')
 
-# Initialize database
-init_db()
+# Error handling to get more details
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log the full traceback
+    error_traceback = traceback.format_exc()
+    logger.error(f"Unhandled exception: {str(e)}\n{error_traceback}")
+    
+    # Return a user-friendly error page with some debug info in development
+    if app.debug:
+        return f"""
+        <h1>Application Error</h1>
+        <p>An unexpected error occurred. Please check the server logs for details.</p>
+        <pre>{str(e)}</pre>
+        <p><a href="/">Return to Home</a></p>
+        """, 500
+    return render_template('error.html', error=str(e)), 500
 
-# Check API status on startup
-api_status = get_api_status()
-logger.info(f"\nAPI Status: {api_status.get('status', 'unknown')}")
-if api_status.get('status') != 'online':
-    logger.warning(f"API is not fully operational: {api_status.get('message', 'Unknown error')}")
+# Try-except block for database initialization
+try:
+    # Initialize database
+    init_db()
+    logger.info("Database initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing database: {str(e)}\n{traceback.format_exc()}")
+
+# Check API status on startup with error handling
+try:
+    api_status = get_api_status()
+    logger.info(f"\nAPI Status: {api_status.get('status', 'unknown')}")
+    if api_status.get('status') != 'online':
+        logger.warning(f"API is not fully operational: {api_status.get('message', 'Unknown error')}")
+except Exception as e:
+    logger.error(f"Error checking API status: {str(e)}\n{traceback.format_exc()}")
+    api_status = {'status': 'error', 'message': str(e)}
 
 @app.route('/')
 def index():
@@ -227,6 +254,7 @@ def humanize():
                                   tier_info=tier_info)
         except Exception as e:
             # Unexpected error
+            logger.error(f"Error in humanize route: {str(e)}\n{traceback.format_exc()}")
             message = f"Unexpected error: {str(e)}"
             flash(message, 'danger')
             return render_template('humanize.html', 
@@ -311,8 +339,8 @@ def api_word_count():
 @app.route('/debug')
 def debug():
     """Debug endpoint to show application state."""
-    # Only available in development mode
-    if os.environ.get('FLASK_ENV') != 'production':
+    # Make debug endpoint always available to help troubleshoot
+    try:
         # Get all registered users
         users = []
         
@@ -322,27 +350,66 @@ def debug():
             user_id = session['user_id']
             user = get_user(user_id)
             if user:
-                user_info = {
-                    'username': user.get('username', user_id),
-                    'account_type': user.get('account_type', session.get('account_type', 'basic')),
-                    'email': user.get('email', 'unknown'),
-                    'usage': user.get('usage', {})
-                }
+                if isinstance(user, dict):
+                    user_info = {
+                        'username': user.get('username', user_id),
+                        'account_type': user.get('account_type', session.get('account_type', 'basic')),
+                        'email': user.get('email', 'unknown'),
+                        'usage': user.get('usage', {})
+                    }
+                else:
+                    user_info = {
+                        'username': user_id,
+                        'account_type': session.get('account_type', 'basic'),
+                        'user_type': type(user).__name__
+                    }
         
         # API status
-        api_status = get_api_status()
+        try:
+            api_status = get_api_status()
+        except Exception as e:
+            api_status = {'status': 'error', 'message': str(e)}
         
         # Session data
         session_data = dict(session)
+        
+        # Environment variables (excluding sensitive data)
+        env_vars = {
+            'FLASK_ENV': os.environ.get('FLASK_ENV', 'development'),
+            'PORT': os.environ.get('PORT', '5000'),
+            'API_URL': os.environ.get('API_URL', 'Not Set'),
+            'DB_NAME': os.environ.get('DB_NAME', 'Not Set'),
+            'MONGODB_URI': 'Set' if os.environ.get('MONGODB_URI') else 'Not Set'
+        }
+        
+        # System info
+        import sys
+        sys_info = {
+            'Python Version': sys.version,
+            'Platform': sys.platform
+        }
         
         # Return debug information
         return render_template('debug.html',
                               user_info=user_info,
                               session=session_data,
                               api_status=api_status,
-                              tiers=get_all_tiers())
-    else:
-        return "Debug endpoint not available in production", 404
+                              tiers=get_all_tiers(),
+                              env_vars=env_vars,
+                              sys_info=sys_info)
+    except Exception as e:
+        return f"""
+        <h1>Debug Error</h1>
+        <p>Error in debug endpoint: {str(e)}</p>
+        <pre>{traceback.format_exc()}</pre>
+        <p><a href="/">Return to Home</a></p>
+        """
+
+@app.route('/error-test')
+def error_test():
+    """Route to test error handling."""
+    # Deliberately raise an exception to test error handling
+    raise Exception("This is a test exception to check error handling")
 
 if __name__ == '__main__':
     # Run the Flask app
