@@ -3,6 +3,7 @@ import os
 import logging
 from datetime import datetime
 import json
+import random
 
 # Import backend modules
 from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
@@ -217,6 +218,51 @@ def api_word_count():
     # Return word count
     return jsonify({
         'word_count': word_count
+    })
+
+@app.route('/api/detect-ai', methods=['POST'])
+def api_detect_ai():
+    """API endpoint to detect AI-generated content."""
+    # Get the text from the request
+    data = request.json
+    text = data.get('text', '')
+    
+    if not text:
+        return jsonify({
+            'error': 'No text provided'
+        }), 400
+    
+    # In a real implementation, you would call an AI detection service
+    # For this demo, we'll simulate a detection algorithm
+    
+    # Simple simulation of AI detection (random score with some factors)
+    word_count = count_words(text)
+    
+    # Base score - for demo purposes
+    if word_count < 50:
+        # Short texts get more random scores
+        base_score = random.randint(15, 85)
+    else:
+        # Longer texts tend to lean more toward "AI-written" for this demo
+        base_score = random.randint(40, 95)
+    
+    # Add some variance based on text characteristics
+    # More complex logic would be implemented in a real detector
+    
+    # Final AI score
+    ai_score = min(max(base_score, 0), 100)
+    
+    # Round to integer
+    ai_score = round(ai_score)
+    
+    # Add a small delay to simulate processing
+    import time
+    time.sleep(1.5)
+    
+    # Return the AI detection score
+    return jsonify({
+        'ai_score': ai_score,
+        'analyzed_at': datetime.now().isoformat()
     })
 
 @app.route('/debug')
