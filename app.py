@@ -6,8 +6,7 @@ import json
 
 # Import backend modules
 from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
-from backend.db import (init_db, add_user, verify_user, get_user, get_all_tiers, 
-                       get_tier_info, update_user_tier, get_word_limit)
+from backend.db import init_db, add_user, verify_user, get_user, update_user_usage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,7 +71,6 @@ def login():
         # Special case for demo account
         if username == 'demo' and password == 'demo':
             session['user_id'] = 'demo'
-            session['account_type'] = 'basic'
             flash('Logged in as demo user', 'success')
             return redirect(url_for('dashboard'))
         
@@ -82,7 +80,6 @@ def login():
         if success:
             # Store user info in session
             session['user_id'] = username
-            session['account_type'] = result.get('account_type', 'basic')
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
         else:
@@ -112,14 +109,9 @@ def dashboard():
     user_id = session['user_id']
     user = get_user(user_id)
     
-    # Get user's tier info
-    account_type = session.get('account_type', 'basic')
-    tier_info = get_tier_info(account_type)
-    
     # Render dashboard template with user info
     return render_template('dashboard.html', 
                           user=user, 
-                          tier_info=tier_info,
                           api_status=get_api_status())
 
 @app.route('/account')
@@ -134,16 +126,8 @@ def account():
     user_id = session['user_id']
     user = get_user(user_id)
     
-    # Get tier information
-    account_type = session.get('account_type', 'basic')
-    tier_info = get_tier_info(account_type)
-    all_tiers = get_all_tiers()
-    
     # Render account template with user info
-    return render_template('account.html', 
-                          user=user, 
-                          tier_info=tier_info,
-                          all_tiers=all_tiers)
+    return render_template('account.html', user=user)
 
 @app.route('/humanize', methods=['GET', 'POST'])
 def humanize():
@@ -155,9 +139,6 @@ def humanize():
     
     # Get user info
     user_id = session['user_id']
-    account_type = session.get('account_type', 'basic')
-    tier_info = get_tier_info(account_type)
-    word_limit = tier_info['max_words']
     
     if request.method == 'POST':
         # Get original text from form
@@ -165,23 +146,14 @@ def humanize():
         
         if not original_text:
             flash('Please enter text to humanize', 'warning')
-            return render_template('humanize.html', word_limit=word_limit, tier_info=tier_info)
+            return render_template('humanize.html')
         
         # Count words in the input text
         word_count = count_words(original_text)
         
         try:
-            # Check if text exceeds word limit before calling API
-            if word_count > word_limit:
-                flash(f"Text exceeds your {tier_info['name']} plan word limit of {word_limit} words. Your text has {word_count} words.", 'danger')
-                return render_template('humanize.html', 
-                                      original_text=original_text,
-                                      word_count=word_count,
-                                      word_limit=word_limit,
-                                      tier_info=tier_info)
-            
             # Call the API through our backend service
-            result = humanize_text(original_text, user_id, account_type)
+            result = humanize_text(original_text, user_id)
             humanized_text = result.get('humanized_text', '')
             
             # Prepare success message
@@ -202,18 +174,8 @@ def humanize():
                                   message_type=message_type,
                                   api_source=api_source,
                                   api_response_time=api_response_time,
-                                  word_count=word_count,
-                                  word_limit=word_limit,
-                                  tier_info=tier_info)
+                                  word_count=word_count)
                                   
-        except ValueError as e:
-            # Word limit error
-            flash(str(e), 'danger')
-            return render_template('humanize.html', 
-                                  original_text=original_text,
-                                  word_count=word_count,
-                                  word_limit=word_limit,
-                                  tier_info=tier_info)
         except HumanizerAPIError as e:
             # API error
             message = f"API Error: {str(e)}"
@@ -222,9 +184,7 @@ def humanize():
                                   original_text=original_text,
                                   message=message,
                                   message_type="danger",
-                                  word_count=word_count,
-                                  word_limit=word_limit,
-                                  tier_info=tier_info)
+                                  word_count=word_count)
         except Exception as e:
             # Unexpected error
             message = f"Unexpected error: {str(e)}"
@@ -233,57 +193,10 @@ def humanize():
                                   original_text=original_text,
                                   message=message,
                                   message_type="danger",
-                                  word_count=word_count,
-                                  word_limit=word_limit,
-                                  tier_info=tier_info)
+                                  word_count=word_count)
     
     # GET request - display humanize form
-    return render_template('humanize.html', word_limit=word_limit, tier_info=tier_info)
-
-@app.route('/upgrade', methods=['GET', 'POST'])
-def upgrade():
-    """Handle user plan upgrade requests."""
-    # Check if user is logged in
-    if 'user_id' not in session:
-        flash('Please log in to upgrade your plan', 'warning')
-        return redirect(url_for('login'))
-    
-    # Get user info
-    user_id = session['user_id']
-    current_account_type = session.get('account_type', 'basic')
-    
-    # Get information about all tiers
-    all_tiers = get_all_tiers()
-    
-    if request.method == 'POST':
-        # Get selected tier from form
-        new_tier = request.form.get('tier')
-        
-        if not new_tier or new_tier not in all_tiers:
-            flash('Invalid tier selection', 'danger')
-            return redirect(url_for('upgrade'))
-        
-        # If user is trying to "upgrade" to their current tier, show a message
-        if new_tier == current_account_type:
-            flash(f'You are already on the {all_tiers[new_tier]["name"]} plan', 'info')
-            return redirect(url_for('account'))
-        
-        # Process the upgrade
-        success, message = update_user_tier(user_id, new_tier)
-        
-        if success:
-            # Update session with new account type
-            session['account_type'] = new_tier
-            flash(message, 'success')
-            return redirect(url_for('account'))
-        else:
-            flash(f'Failed to upgrade plan: {message}', 'danger')
-            return redirect(url_for('upgrade'))
-    
-    # GET request - display upgrade form
-    return render_template('upgrade.html', 
-                          current_tier=current_account_type,
-                          all_tiers=all_tiers)
+    return render_template('humanize.html')
 
 @app.route('/api/word-count', methods=['POST'])
 def api_word_count():
@@ -295,17 +208,9 @@ def api_word_count():
     # Count words
     word_count = count_words(text)
     
-    # Get user's word limit if logged in
-    word_limit = 0
-    if 'user_id' in session:
-        account_type = session.get('account_type', 'basic')
-        word_limit = get_word_limit(account_type)
-    
-    # Return word count and limit
+    # Return word count
     return jsonify({
-        'word_count': word_count,
-        'word_limit': word_limit,
-        'exceeds_limit': word_count > word_limit if word_limit > 0 else False
+        'word_count': word_count
     })
 
 @app.route('/debug')
@@ -324,7 +229,6 @@ def debug():
             if user:
                 user_info = {
                     'username': user.get('username', user_id),
-                    'account_type': user.get('account_type', session.get('account_type', 'basic')),
                     'email': user.get('email', 'unknown'),
                     'usage': user.get('usage', {})
                 }
@@ -339,8 +243,7 @@ def debug():
         return render_template('debug.html',
                               user_info=user_info,
                               session=session_data,
-                              api_status=api_status,
-                              tiers=get_all_tiers())
+                              api_status=api_status)
     else:
         return "Debug endpoint not available in production", 404
 
