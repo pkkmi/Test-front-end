@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block title %}Humanize Text - Andikar AI{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/word-counter.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+  <div class="row">
+    <div class="col-md-10 offset-md-1">
+      <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+          <h2 class="mb-0">Humanize Your Text</h2>
+        </div>
+        
+        <div class="card-body">
+          <!-- Plan Information -->
+          <div class="alert alert-info mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="mb-1">{{ tier_info.name }} Plan</h5>
+                <p class="mb-0">Maximum <strong>{{ tier_info.max_words }}</strong> words per request</p>
+              </div>
+              <a href="{{ url_for('upgrade') }}" class="btn btn-sm btn-outline-primary">Upgrade Plan</a>
+            </div>
+          </div>
+          
+          {% if message %}
+          <div class="alert alert-{{ message_type }}">
+            {{ message }}
+          </div>
+          {% endif %}
+          
+          <form method="POST" action="{{ url_for('humanize') }}">
+            <div class="row mb-4">
+              <div class="col-md-6">
+                <div class="form-group">
+                  <label for="original_text"><strong>Original Text</strong></label>
+                  <textarea class="form-control" id="original_text" name="original_text" rows="12" placeholder="Enter text to humanize..." required>{{ original_text|default('', true) }}</textarea>
+                  
+                  <!-- Word Counter -->
+                  <div class="mt-2">
+                    <div class="d-flex justify-content-between">
+                      <small class="text-muted">
+                        Word count: <span id="word-count">{{ word_count|default(0) }}</span> / 
+                        <span id="word-limit" data-limit="{{ word_limit }}">{{ word_limit }}</span>
+                      </small>
+                      {% if word_limit > 0 %}
+                      <small>
+                        <a href="{{ url_for('upgrade') }}" class="text-primary">Need more words?</a>
+                      </small>
+                      {% endif %}
+                    </div>
+                    <div class="progress mt-1" style="height: 5px;">
+                      <div id="word-count-progress" class="progress-bar bg-success" 
+                           style="width: {{ (word_count|default(0) / word_limit * 100) if word_limit > 0 else 0 }}%"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="col-md-6">
+                <div class="form-group">
+                  <label for="humanized_text"><strong>Humanized Text</strong></label>
+                  <textarea class="form-control" id="humanized_text" name="humanized_text" rows="12" placeholder="Humanized text will appear here..." readonly>{{ humanized_text|default('', true) }}</textarea>
+                  {% if humanized_text %}
+                  <div class="text-right mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" 
+                            onclick="navigator.clipboard.writeText(document.getElementById('humanized_text').value)">
+                      Copy to Clipboard
+                    </button>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            
+            <div class="text-center">
+              <button type="submit" class="btn btn-primary btn-lg px-5">
+                <i class="fas fa-magic mr-2"></i> Humanize
+              </button>
+            </div>
+          </form>
+          
+          {% if metrics %}
+          <div class="mt-4">
+            <h5>Processing Information</h5>
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <tbody>
+                  <tr>
+                    <th style="width: 200px;">Words Processed</th>
+                    <td>{{ metrics.input_words }} words</td>
+                  </tr>
+                  <tr>
+                    <th>Words Generated</th>
+                    <td>{{ metrics.output_words }} words</td>
+                  </tr>
+                  {% if api_response_time %}
+                  <tr>
+                    <th>Processing Time</th>
+                    <td>{{ "%.2f"|format(api_response_time) }} seconds</td>
+                  </tr>
+                  {% endif %}
+                  <tr>
+                    <th>Source</th>
+                    <td>{{ api_source }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+          
+          <div class="mt-4 text-center">
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+              <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
