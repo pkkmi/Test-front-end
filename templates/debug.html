@@ -1,0 +1,219 @@
+{% extends 'base.html' %}
+
+{% block title %}Debug - Andikar AI{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+  <div class="row">
+    <div class="col-md-10 offset-md-1">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+          <h2 class="mb-0">Application Debug Information</h2>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-warning">
+            <strong>Note:</strong> This page shows technical information for debugging purposes.
+          </div>
+
+          <!-- Session Information -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h4 class="mb-0">Session Information</h4>
+            </div>
+            <div class="card-body">
+              {% if session %}
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Key</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for key, value in session.items() %}
+                    <tr>
+                      <td><code>{{ key }}</code></td>
+                      <td><code>{{ value }}</code></td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="alert alert-info">No session data available.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- User Information -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h4 class="mb-0">Current User</h4>
+            </div>
+            <div class="card-body">
+              {% if user_info %}
+                <table class="table table-sm">
+                  <tbody>
+                    {% for key, value in user_info.items() %}
+                    <tr>
+                      <th style="width: 150px;">{{ key }}</th>
+                      <td>
+                        {% if key == 'usage' and value is mapping %}
+                          <ul class="mb-0">
+                            {% for usage_key, usage_value in value.items() %}
+                            <li><strong>{{ usage_key }}:</strong> {{ usage_value }}</li>
+                            {% endfor %}
+                          </ul>
+                        {% else %}
+                          {{ value }}
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="alert alert-info">No user is currently logged in.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- API Status -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h4 class="mb-0">API Status</h4>
+            </div>
+            <div class="card-body">
+              {% if api_status %}
+                <div class="alert 
+                  {% if api_status.status == 'online' %}alert-success
+                  {% elif api_status.status == 'offline' %}alert-danger
+                  {% else %}alert-warning{% endif %}">
+                  <strong>Status:</strong> {{ api_status.status }}
+                </div>
+                
+                <table class="table table-sm">
+                  <tbody>
+                    {% for key, value in api_status.items() %}
+                    {% if key != 'status' %}
+                    <tr>
+                      <th style="width: 150px;">{{ key }}</th>
+                      <td>{{ value }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="alert alert-danger">API status information not available.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Tier Information -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h4 class="mb-0">Plan Tiers</h4>
+            </div>
+            <div class="card-body">
+              {% if tiers %}
+                <table class="table table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Plan</th>
+                      <th>Word Limit</th>
+                      <th>Name</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for tier_key, tier_value in tiers.items() %}
+                    <tr>
+                      <td><code>{{ tier_key }}</code></td>
+                      <td>{{ tier_value.max_words }}</td>
+                      <td>{{ tier_value.name }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="alert alert-danger">Tier information not available.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Environment Variables -->
+          {% if env_vars %}
+          <div class="card mb-4">
+            <div class="card-header">
+              <h4 class="mb-0">Environment Variables</h4>
+            </div>
+            <div class="card-body">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for key, value in env_vars.items() %}
+                  <tr>
+                    <td><code>{{ key }}</code></td>
+                    <td>{{ value }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- System Information -->
+          {% if sys_info %}
+          <div class="card mb-4">
+            <div class="card-header">
+              <h4 class="mb-0">System Information</h4>
+            </div>
+            <div class="card-body">
+              <table class="table table-sm">
+                <tbody>
+                  {% for key, value in sys_info.items() %}
+                  <tr>
+                    <th style="width: 200px;">{{ key }}</th>
+                    <td>{{ value }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- Test Routes -->
+          <div class="card">
+            <div class="card-header">
+              <h4 class="mb-0">Test Routes</h4>
+            </div>
+            <div class="card-body">
+              <div class="list-group">
+                <a href="{{ url_for('error_test') }}" class="list-group-item list-group-item-action list-group-item-danger">
+                  Test Error Handling
+                </a>
+                <a href="{{ url_for('index') }}" class="list-group-item list-group-item-action">
+                  Home Page
+                </a>
+                <a href="{{ url_for('dashboard') }}" class="list-group-item list-group-item-action">
+                  Dashboard
+                </a>
+                <a href="{{ url_for('humanize') }}" class="list-group-item list-group-item-action">
+                  Humanize Text
+                </a>
+              </div>
+            </div>
+          </div>
+          
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
