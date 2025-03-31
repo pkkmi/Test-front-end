@@ -44,7 +44,7 @@
                         <a class="nav-link" href="{{ url_for('account') }}">My Account</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('support_page') }}">Support</a>
+                        <a class="nav-link" href="{{ url_for('support.support_page') }}">Support</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
@@ -57,7 +57,7 @@
                         <a class="nav-link" href="{{ url_for('register') }}">Register</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('support_page') }}">Support</a>
+                        <a class="nav-link" href="{{ url_for('support.support_page') }}">Support</a>
                     </li>
                     {% endif %}
                 </ul>
@@ -100,7 +100,7 @@
                         <li><a href="{{ url_for('login') }}" class="text-white">Login</a></li>
                         <li><a href="{{ url_for('register') }}" class="text-white">Register</a></li>
                         {% endif %}
-                        <li><a href="{{ url_for('support_page') }}" class="text-white">Support</a></li>
+                        <li><a href="{{ url_for('support.support_page') }}" class="text-white">Support</a></li>
                     </ul>
                 </div>
                 <div class="col-md-3">
