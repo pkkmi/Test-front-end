@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+
+{% block title %}Support - Andikar AI{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <!-- Support Chat Section -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Andikar AI Support Bot</h5>
+                </div>
+                <div class="card-body">
+                    <div id="chat-messages" class="chat-container">
+                        <!-- Chat messages will appear here -->
+                        <div class="message bot-message">
+                            Hello! I'm the Andikar AI Support Bot. How can I help you today?
+                        </div>
+                    </div>
+                    <div class="suggestion-buttons mt-3" id="suggestions">
+                        <button class="btn btn-sm btn-outline-primary m-1" onclick="sendMessage('How does humanization work?')">How does humanization work?</button>
+                        <button class="btn btn-sm btn-outline-primary m-1" onclick="sendMessage('I\'m getting an error')">I'm getting an error</button>
+                        <button class="btn btn-sm btn-outline-primary m-1" onclick="sendMessage('Account issues')">Account issues</button>
+                    </div>
+                    <div class="input-group mt-3">
+                        <input type="text" id="user-input" class="form-control" placeholder="Type your question...">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" id="send-button">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- FAQs Section -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Frequently Asked Questions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="accordion" id="faqAccordion">
+                        {% for faq in faqs %}
+                        <div class="card mb-2">
+                            <div class="card-header p-0" id="heading{{ faq.id }}">
+                                <h2 class="mb-0">
+                                    <button class="btn btn-link btn-block text-left collapsed" type="button" 
+                                            data-toggle="collapse" data-target="#collapse{{ faq.id }}" 
+                                            aria-expanded="false" aria-controls="collapse{{ faq.id }}">
+                                        {{ faq.question }}
+                                    </button>
+                                </h2>
+                            </div>
+                            <div id="collapse{{ faq.id }}" class="collapse" 
+                                 aria-labelledby="heading{{ faq.id }}" data-parent="#faqAccordion">
+                                <div class="card-body">
+                                    {{ faq.answer }}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Contact Form Section -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Contact Support</h5>
+                </div>
+                <div class="card-body">
+                    <form id="contact-form">
+                        <div class="form-group">
+                            <label for="name">Name</label>
+                            <input type="text" class="form-control" id="name" placeholder="Your name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" class="form-control" id="email" placeholder="Your email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="message">Message</label>
+                            <textarea class="form-control" id="message" rows="4" placeholder="Describe your issue in detail" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Submit</button>
+                    </form>
+                    <div id="form-response" class="mt-3" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .chat-container {
+        height: 300px;
+        overflow-y: auto;
+        border: 1px solid #e0e0e0;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    
+    .message {
+        padding: 8px 12px;
+        border-radius: 18px;
+        margin-bottom: 10px;
+        max-width: 80%;
+        word-wrap: break-word;
+    }
+    
+    .bot-message {
+        background-color: #e9ecef;
+        align-self: flex-start;
+        border-bottom-left-radius: 5px;
+    }
+    
+    .user-message {
+        background-color: #007bff;
+        color: white;
+        margin-left: auto;
+        border-bottom-right-radius: 5px;
+        align-self: flex-end;
+    }
+    
+    .suggestion-buttons {
+        display: flex;
+        flex-wrap: wrap;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const chatMessages = document.getElementById('chat-messages');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const suggestionsDiv = document.getElementById('suggestions');
+        const contactForm = document.getElementById('contact-form');
+        const formResponse = document.getElementById('form-response');
+        
+        // Send message function
+        function sendMessage(text) {
+            // If no text provided, get from input field
+            if (!text) {
+                text = userInput.value.trim();
+                if (!text) return; // Don't send empty messages
+                userInput.value = ''; // Clear input field
+            }
+            
+            // Add user message to chat
+            const userMessageDiv = document.createElement('div');
+            userMessageDiv.className = 'message user-message';
+            userMessageDiv.textContent = text;
+            chatMessages.appendChild(userMessageDiv);
+            
+            // Scroll to bottom of chat
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Hide suggestions after user asks a question
+            suggestionsDiv.innerHTML = '';
+            
+            // Add "typing" indicator
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message bot-message';
+            typingDiv.id = 'typing-indicator';
+            typingDiv.textContent = 'Typing...';
+            chatMessages.appendChild(typingDiv);
+            
+            // Send message to server
+            fetch('/api/support/message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: text })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Remove typing indicator
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (typingIndicator) {
+                    chatMessages.removeChild(typingIndicator);
+                }
+                
+                // Add bot response to chat
+                const botMessageDiv = document.createElement('div');
+                botMessageDiv.className = 'message bot-message';
+                botMessageDiv.textContent = data.message;
+                chatMessages.appendChild(botMessageDiv);
+                
+                // Add suggestion buttons if any
+                if (data.suggestions && data.suggestions.length > 0) {
+                    data.suggestions.forEach(suggestion => {
+                        const button = document.createElement('button');
+                        button.className = 'btn btn-sm btn-outline-primary m-1';
+                        button.textContent = suggestion;
+                        button.onclick = function() {
+                            sendMessage(suggestion);
+                        };
+                        suggestionsDiv.appendChild(button);
+                    });
+                }
+                
+                // Scroll to bottom of chat
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            })
+            .catch(error => {
+                // Remove typing indicator
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (typingIndicator) {
+                    chatMessages.removeChild(typingIndicator);
+                }
+                
+                // Show error message
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'message bot-message';
+                errorDiv.textContent = 'Sorry, I encountered an error. Please try again or use the contact form below.';
+                chatMessages.appendChild(errorDiv);
+                
+                // Scroll to bottom of chat
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            });
+        }
+        
+        // Event listeners
+        sendButton.addEventListener('click', function() {
+            sendMessage();
+        });
+        
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // Handle contact form submission
+        contactForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                message: document.getElementById('message').value
+            };
+            
+            fetch('/api/support/contact', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Show success message
+                formResponse.style.display = 'block';
+                formResponse.className = 'alert alert-success';
+                formResponse.textContent = data.message;
+                
+                // Clear form
+                contactForm.reset();
+            })
+            .catch(error => {
+                // Show error message
+                formResponse.style.display = 'block';
+                formResponse.className = 'alert alert-danger';
+                formResponse.textContent = 'An error occurred. Please try again later.';
+            });
+        });
+    });
+    
+    // Make the sendMessage function globally accessible
+    function sendMessage(text) {
+        const event = new CustomEvent('sendSupportMessage', { detail: { message: text } });
+        document.dispatchEvent(event);
+    }
+    
+    // Listen for the custom event
+    document.addEventListener('sendSupportMessage', function(e) {
+        const chatMessages = document.getElementById('chat-messages');
+        const userInput = document.getElementById('user-input');
+        const suggestionsDiv = document.getElementById('suggestions');
+        
+        const text = e.detail.message;
+        
+        // Add user message to chat
+        const userMessageDiv = document.createElement('div');
+        userMessageDiv.className = 'message user-message';
+        userMessageDiv.textContent = text;
+        chatMessages.appendChild(userMessageDiv);
+        
+        // Scroll to bottom of chat
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        // Hide suggestions after user asks a question
+        suggestionsDiv.innerHTML = '';
+        
+        // Add "typing" indicator
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message bot-message';
+        typingDiv.id = 'typing-indicator';
+        typingDiv.textContent = 'Typing...';
+        chatMessages.appendChild(typingDiv);
+        
+        // Send message to server
+        fetch('/api/support/message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: text })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Remove typing indicator
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (typingIndicator) {
+                chatMessages.removeChild(typingIndicator);
+            }
+            
+            // Add bot response to chat
+            const botMessageDiv = document.createElement('div');
+            botMessageDiv.className = 'message bot-message';
+            botMessageDiv.textContent = data.message;
+            chatMessages.appendChild(botMessageDiv);
+            
+            // Add suggestion buttons if any
+            if (data.suggestions && data.suggestions.length > 0) {
+                data.suggestions.forEach(suggestion => {
+                    const button = document.createElement('button');
+                    button.className = 'btn btn-sm btn-outline-primary m-1';
+                    button.textContent = suggestion;
+                    button.onclick = function() {
+                        sendMessage(suggestion);
+                    };
+                    suggestionsDiv.appendChild(button);
+                });
+            }
+            
+            // Scroll to bottom of chat
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        })
+        .catch(error => {
+            // Remove typing indicator
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (typingIndicator) {
+                chatMessages.removeChild(typingIndicator);
+            }
+            
+            // Show error message
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'message bot-message';
+            errorDiv.textContent = 'Sorry, I encountered an error. Please try again or use the contact form below.';
+            chatMessages.appendChild(errorDiv);
+            
+            // Scroll to bottom of chat
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+    });
+</script>
+{% endblock %}

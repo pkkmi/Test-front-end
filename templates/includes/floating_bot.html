@@ -1,0 +1,308 @@
+{# This snippet will be injected into your base template to add a floating support button #}
+<div id="floating-support-bot" class="floating-support">
+    <div id="support-bot-button" class="support-bot-icon">
+        <span>?</span>
+    </div>
+    <div id="support-bot-card" class="support-bot-card" style="display: none;">
+        <div class="support-bot-header">
+            <h5>Andikar AI Support</h5>
+            <button id="close-support-bot" class="close-button">&times;</button>
+        </div>
+        <div class="support-bot-body">
+            <div id="mini-chat-messages" class="mini-chat-container">
+                <div class="mini-message bot-message">
+                    Hello! How can I help you with Andikar AI?
+                </div>
+            </div>
+            <div id="mini-suggestions" class="mini-suggestion-buttons">
+                <button onclick="sendMiniMessage('How does humanization work?')">How does it work?</button>
+                <button onclick="sendMiniMessage('I\'m getting an error')">Having an error</button>
+                <button onclick="sendMiniMessage('Account issues')">Account help</button>
+            </div>
+            <div class="mini-input-group">
+                <input type="text" id="mini-user-input" placeholder="Type your question...">
+                <button id="mini-send-button">Send</button>
+            </div>
+            <div class="support-bot-footer">
+                <a href="/support" class="full-support-link">Visit Support Center</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Floating Support Bot Styles */
+    .floating-support {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1000;
+        font-family: Arial, sans-serif;
+    }
+    
+    .support-bot-icon {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 60px;
+        height: 60px;
+        background-color: #007bff;
+        color: white;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        font-size: 24px;
+        transition: all 0.3s ease;
+    }
+    
+    .support-bot-icon:hover {
+        transform: scale(1.1);
+    }
+    
+    .support-bot-card {
+        position: absolute;
+        bottom: 80px;
+        right: 0;
+        width: 300px;
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        overflow: hidden;
+    }
+    
+    .support-bot-header {
+        background-color: #007bff;
+        color: white;
+        padding: 10px 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .support-bot-header h5 {
+        margin: 0;
+        font-size: 16px;
+    }
+    
+    .close-button {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0;
+    }
+    
+    .support-bot-body {
+        padding: 15px;
+    }
+    
+    .mini-chat-container {
+        height: 200px;
+        overflow-y: auto;
+        border: 1px solid #e0e0e0;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    
+    .mini-message {
+        padding: 8px 12px;
+        border-radius: 18px;
+        margin-bottom: 10px;
+        max-width: 85%;
+        word-wrap: break-word;
+    }
+    
+    .bot-message {
+        background-color: #e9ecef;
+        align-self: flex-start;
+        border-bottom-left-radius: 5px;
+    }
+    
+    .user-message {
+        background-color: #007bff;
+        color: white;
+        margin-left: auto;
+        border-bottom-right-radius: 5px;
+        align-self: flex-end;
+    }
+    
+    .mini-suggestion-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-bottom: 10px;
+    }
+    
+    .mini-suggestion-buttons button {
+        background-color: #e7f1ff;
+        border: 1px solid #d0e3ff;
+        border-radius: 15px;
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    
+    .mini-suggestion-buttons button:hover {
+        background-color: #d0e3ff;
+    }
+    
+    .mini-input-group {
+        display: flex;
+        margin-bottom: 10px;
+    }
+    
+    .mini-input-group input {
+        flex-grow: 1;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 5px 0 0 5px;
+        outline: none;
+    }
+    
+    .mini-input-group button {
+        padding: 8px 15px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 0 5px 5px 0;
+        cursor: pointer;
+    }
+    
+    .support-bot-footer {
+        text-align: center;
+        border-top: 1px solid #eee;
+        padding-top: 10px;
+    }
+    
+    .full-support-link {
+        color: #007bff;
+        text-decoration: none;
+        font-size: 14px;
+    }
+    
+    .full-support-link:hover {
+        text-decoration: underline;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const supportBotButton = document.getElementById('support-bot-button');
+        const supportBotCard = document.getElementById('support-bot-card');
+        const closeButton = document.getElementById('close-support-bot');
+        const miniChatMessages = document.getElementById('mini-chat-messages');
+        const miniUserInput = document.getElementById('mini-user-input');
+        const miniSendButton = document.getElementById('mini-send-button');
+        const miniSuggestions = document.getElementById('mini-suggestions');
+        
+        // Toggle support bot display
+        supportBotButton.addEventListener('click', function() {
+            supportBotCard.style.display = 'block';
+            supportBotButton.style.display = 'none';
+        });
+        
+        closeButton.addEventListener('click', function() {
+            supportBotCard.style.display = 'none';
+            supportBotButton.style.display = 'flex';
+        });
+        
+        // Send message function
+        function sendMiniMessage(text) {
+            // If no text provided, get from input field
+            if (!text) {
+                text = miniUserInput.value.trim();
+                if (!text) return; // Don't send empty messages
+                miniUserInput.value = ''; // Clear input field
+            }
+            
+            // Add user message to chat
+            const userMessageDiv = document.createElement('div');
+            userMessageDiv.className = 'mini-message user-message';
+            userMessageDiv.textContent = text;
+            miniChatMessages.appendChild(userMessageDiv);
+            
+            // Scroll to bottom of chat
+            miniChatMessages.scrollTop = miniChatMessages.scrollHeight;
+            
+            // Hide suggestions after user asks a question
+            miniSuggestions.innerHTML = '';
+            
+            // Add "typing" indicator
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'mini-message bot-message';
+            typingDiv.id = 'mini-typing-indicator';
+            typingDiv.textContent = 'Typing...';
+            miniChatMessages.appendChild(typingDiv);
+            
+            // Send message to server
+            fetch('/api/support/message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: text })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Remove typing indicator
+                const typingIndicator = document.getElementById('mini-typing-indicator');
+                if (typingIndicator) {
+                    miniChatMessages.removeChild(typingIndicator);
+                }
+                
+                // Add bot response to chat
+                const botMessageDiv = document.createElement('div');
+                botMessageDiv.className = 'mini-message bot-message';
+                botMessageDiv.textContent = data.message;
+                miniChatMessages.appendChild(botMessageDiv);
+                
+                // Add suggestion buttons if any
+                if (data.suggestions && data.suggestions.length > 0) {
+                    data.suggestions.forEach(suggestion => {
+                        const button = document.createElement('button');
+                        button.textContent = suggestion;
+                        button.onclick = function() {
+                            sendMiniMessage(suggestion);
+                        };
+                        miniSuggestions.appendChild(button);
+                    });
+                }
+                
+                // Scroll to bottom of chat
+                miniChatMessages.scrollTop = miniChatMessages.scrollHeight;
+            })
+            .catch(error => {
+                // Remove typing indicator
+                const typingIndicator = document.getElementById('mini-typing-indicator');
+                if (typingIndicator) {
+                    miniChatMessages.removeChild(typingIndicator);
+                }
+                
+                // Show error message
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'mini-message bot-message';
+                errorDiv.textContent = 'Sorry, I encountered an error. Please try again or visit our Support Center.';
+                miniChatMessages.appendChild(errorDiv);
+                
+                // Scroll to bottom of chat
+                miniChatMessages.scrollTop = miniChatMessages.scrollHeight;
+            });
+        }
+        
+        // Event listeners
+        miniSendButton.addEventListener('click', function() {
+            sendMiniMessage();
+        });
+        
+        miniUserInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMiniMessage();
+            }
+        });
+        
+        // Make sendMiniMessage globally accessible
+        window.sendMiniMessage = sendMiniMessage;
+    });
+</script>

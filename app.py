@@ -8,6 +8,9 @@ import json
 from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
 from backend.db import init_db, add_user, verify_user, get_user, update_user_usage
 
+# Import support bot module
+from support_bot import register_support_bot
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +21,9 @@ app.secret_key = os.environ.get('SECRET_KEY', 'andikar-ai-development-key')
 
 # Initialize database
 init_db()
+
+# Register support bot blueprint
+register_support_bot(app)
 
 # Check API status on startup
 api_status = get_api_status()
