@@ -2,11 +2,6 @@
 
 {% block title %}Humanize Text - Andikar AI{% endblock %}
 
-{% block head %}
-{{ super() }}
-<script src="{{ url_for('static', filename='js/word-counter.js') }}"></script>
-{% endblock %}
-
 {% block content %}
 <div class="container mt-5">
   <div class="row">
@@ -17,17 +12,6 @@
         </div>
         
         <div class="card-body">
-          <!-- Plan Information -->
-          <div class="alert alert-info mb-4">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <h5 class="mb-1">{{ tier_info.name }} Plan</h5>
-                <p class="mb-0">Maximum <strong>{{ tier_info.max_words }}</strong> words per request</p>
-              </div>
-              <a href="{{ url_for('upgrade') }}" class="btn btn-sm btn-outline-primary">Upgrade Plan</a>
-            </div>
-          </div>
-          
           {% if message %}
           <div class="alert alert-{{ message_type }}">
             {{ message }}
@@ -45,18 +29,8 @@
                   <div class="mt-2">
                     <div class="d-flex justify-content-between">
                       <small class="text-muted">
-                        Word count: <span id="word-count">{{ word_count|default(0) }}</span> / 
-                        <span id="word-limit" data-limit="{{ word_limit }}">{{ word_limit }}</span>
+                        Word count: <span id="word-count">{{ word_count|default(0) }}</span>
                       </small>
-                      {% if word_limit > 0 %}
-                      <small>
-                        <a href="{{ url_for('upgrade') }}" class="text-primary">Need more words?</a>
-                      </small>
-                      {% endif %}
-                    </div>
-                    <div class="progress mt-1" style="height: 5px;">
-                      <div id="word-count-progress" class="progress-bar bg-success" 
-                           style="width: {{ (word_count|default(0) / word_limit * 100) if word_limit > 0 else 0 }}%"></div>
                     </div>
                   </div>
                 </div>
@@ -125,4 +99,45 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Get references to the text area and counter elements
+    const textArea = document.getElementById('original_text');
+    const wordCountElement = document.getElementById('word-count');
+    
+    // Function to count words in text
+    function countWords(text) {
+      return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    }
+    
+    // Function to update the word count display
+    function updateWordCount() {
+      if (!textArea || !wordCountElement) return;
+      
+      const text = textArea.value;
+      const count = countWords(text);
+      
+      // Update word count display
+      wordCountElement.textContent = count;
+    }
+    
+    // Add event listener for text input
+    if (textArea) {
+      textArea.addEventListener('input', updateWordCount);
+      
+      // Initialize word count on page load
+      updateWordCount();
+    }
+    
+    // Handle paste events
+    if (textArea) {
+      textArea.addEventListener('paste', function() {
+        setTimeout(updateWordCount, 10);
+      });
+    }
+  });
+</script>
 {% endblock %}
