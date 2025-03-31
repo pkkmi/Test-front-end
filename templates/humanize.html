@@ -18,7 +18,7 @@
           </div>
           {% endif %}
           
-          <form method="POST" action="{{ url_for('humanize') }}">
+          <form method="POST" action="{{ url_for('humanize') }}" id="humanize-form">
             <div class="row mb-4">
               <div class="col-md-6">
                 <div class="form-group">
@@ -53,7 +53,7 @@
             </div>
             
             <div class="text-center">
-              <button type="submit" class="btn btn-primary btn-lg px-5">
+              <button type="submit" class="btn btn-primary btn-lg px-5" id="humanize-btn">
                 <i class="fas fa-magic mr-2"></i> Humanize
               </button>
               
@@ -65,6 +65,17 @@
               {% endif %}
             </div>
           </form>
+          
+          <!-- Processing indicator (hidden by default) -->
+          <div id="processing-indicator" class="text-center mt-4" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+              <span class="sr-only">Loading...</span>
+            </div>
+            <p class="mt-2">Processing your text... This may take up to a minute for longer texts.</p>
+            <div class="progress mt-3">
+              <div id="processing-progress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+            </div>
+          </div>
           
           <!-- AI Detection Results (Hidden initially) -->
           <div id="ai-score-container" class="mt-4" style="display: none;">
@@ -106,6 +117,18 @@
                     <td>{{ "%.2f"|format(api_response_time) }} seconds</td>
                   </tr>
                   {% endif %}
+                  {% if metrics.retries and metrics.retries > 0 %}
+                  <tr>
+                    <th>API Retries</th>
+                    <td>{{ metrics.retries }}</td>
+                  </tr>
+                  {% endif %}
+                  {% if metrics.fallback %}
+                  <tr>
+                    <th>Processing Mode</th>
+                    <td><span class="badge badge-warning">Fallback (API timeout)</span></td>
+                  </tr>
+                  {% endif %}
                   <tr>
                     <th>Source</th>
                     <td>{{ api_source }}</td>
@@ -134,6 +157,10 @@
     // Get references to the text area and counter elements
     const textArea = document.getElementById('original_text');
     const wordCountElement = document.getElementById('word-count');
+    const humanizeForm = document.getElementById('humanize-form');
+    const humanizeBtn = document.getElementById('humanize-btn');
+    const processingIndicator = document.getElementById('processing-indicator');
+    const processingProgress = document.getElementById('processing-progress');
     
     // Function to count words in text
     function countWords(text) {
@@ -163,6 +190,25 @@
     if (textArea) {
       textArea.addEventListener('paste', function() {
         setTimeout(updateWordCount, 10);
+      });
+    }
+    
+    // Show processing indicator when form is submitted
+    if (humanizeForm && humanizeBtn && processingIndicator) {
+      humanizeForm.addEventListener('submit', function(e) {
+        // Show processing indicator
+        humanizeBtn.disabled = true;
+        processingIndicator.style.display = 'block';
+        
+        // Simulate progress for visual feedback
+        let progress = 0;
+        const progressInterval = setInterval(function() {
+          progress += 1;
+          if (progress > 95) {
+            clearInterval(progressInterval);
+          }
+          processingProgress.style.width = progress + '%';
+        }, 600); // Adjust timing based on expected API response time
       });
     }
   });
