@@ -1,305 +1,210 @@
-"""
-MongoDB Database Module
-Handles connection and operations for the MongoDB database
-"""
-
 import os
-import logging
-import datetime
-from dotenv import load_dotenv
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure, OperationFailure
 from werkzeug.security import generate_password_hash, check_password_hash
-
-# Load environment variables
-load_dotenv()
+import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# MongoDB connection string (from environment or hardcoded for testing)
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb+srv://edgarmaina003:Andikar_25@oldtrafford.id96k.mongodb.net/?retryWrites=true&w=majority&appName=OldTrafford')
+# User tiers and word limits
+USER_TIERS = {
+    'basic': {'max_words': 500, 'name': 'Basic'},
+    'standard': {'max_words': 2500, 'name': 'Standard'},
+    'premium': {'max_words': 12500, 'name': 'Premium'}
+}
 
-# Initialize client as None, we'll connect lazily
-client = None
-db = None
+# Database configuration
+DB_URI = os.environ.get('MONGODB_URI', 'mongodb+srv://edgarmaina003:Andikar_25@oldtrafford.id96k.mongodb.net/?retryWrites=true&w=majority&appName=OldTrafford')
+DB_NAME = os.environ.get('DB_NAME', 'andikar_ai')
 
-def get_db_connection():
-    """Get a connection to the MongoDB database"""
-    global client, db
-    
-    if client is None:
-        try:
-            # Connect to MongoDB
-            client = MongoClient(MONGO_URI)
-            
-            # Ping the server to confirm connection
-            client.admin.command('ping')
-            logger.info("Successfully connected to MongoDB")
-            
-            # Get the database
-            db = client.andikar_db
-            
-            # Initialize collections if they don't exist
-            if 'users' not in db.list_collection_names():
-                db.create_collection('users')
-                logger.info("Created 'users' collection")
-                
-            if 'transactions' not in db.list_collection_names():
-                db.create_collection('transactions')
-                logger.info("Created 'transactions' collection")
-                
-            return db
-            
-        except ConnectionFailure as e:
-            logger.error(f"MongoDB connection failed: {str(e)}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected MongoDB error: {str(e)}")
-            raise
-    
-    return db
+# Initialize MongoDB client
+try:
+    client = MongoClient(DB_URI)
+    db = client[DB_NAME]
+    users_collection = db['users']
+    transactions_collection = db['transactions']
+    logger.info(f"Connected to MongoDB: {DB_NAME}")
+except Exception as e:
+    logger.error(f"Error connecting to MongoDB: {str(e)}")
+    # Fallback to in-memory storage if MongoDB connection fails
+    users_collection = {}
+    transactions_collection = {}
 
-# User functions
-def get_user(username):
-    """Get a user from the database"""
-    try:
-        db = get_db_connection()
-        user = db.users.find_one({"username": username})
-        return user
-    except Exception as e:
-        logger.error(f"Error getting user {username}: {str(e)}")
-        return None
-
-def create_user(username, password, email, plan_type='Free'):
-    """Create a new user in the database"""
-    try:
-        db = get_db_connection()
-        
-        # Check if user already exists
-        if db.users.find_one({"username": username}):
-            logger.warning(f"User {username} already exists")
-            return None
-        
-        # Create user document
-        user = {
-            "username": username,
-            "password": generate_password_hash(password),
-            "email": email,
-            "plan": plan_type,
-            "joined_date": datetime.datetime.now(),
-            "words_used": 0,
-            "payment_status": 'Pending' if plan_type != 'Free' else 'N/A',
-            "api_keys": {}
-        }
-        
-        # Insert user
-        result = db.users.insert_one(user)
-        
-        if result.acknowledged:
-            logger.info(f"Created user {username}")
-            # Return user without password for security
-            user.pop('password', None)
-            return user
-        else:
-            logger.error(f"Failed to create user {username}")
-            return None
-    except Exception as e:
-        logger.error(f"Error creating user {username}: {str(e)}")
-        return None
-
-def authenticate_user(username, password):
-    """Authenticate a user with username and password"""
-    try:
-        db = get_db_connection()
-        user = db.users.find_one({"username": username})
-        
-        if user:
-            # Special case for demo account
-            if username == 'demo' and password == 'demo':
-                return {
-                    'user_id': 'demo',
-                    'username': 'demo',
-                    'account_type': 'Basic'
-                }
-            
-            # Check password hash
-            if check_password_hash(user['password'], password):
-                return {
-                    'user_id': username,
-                    'username': username,
-                    'account_type': user.get('plan', 'Free')
-                }
-        
-        return None
-    except Exception as e:
-        logger.error(f"Error authenticating user {username}: {str(e)}")
-        return None
-
-def update_user_usage(username, word_count):
-    """Update a user's word usage count"""
-    try:
-        db = get_db_connection()
-        result = db.users.update_one(
-            {"username": username},
-            {"$inc": {"words_used": word_count}}
-        )
-        
-        if result.modified_count > 0:
-            logger.info(f"Updated word count for user {username} by {word_count}")
-            return True
-        else:
-            logger.warning(f"No update for user {username}")
-            return False
-    except Exception as e:
-        logger.error(f"Error updating word count for user {username}: {str(e)}")
-        return False
-
-def update_user_plan(username, new_plan):
-    """Update a user's plan"""
-    try:
-        db = get_db_connection()
-        
-        # Update plan and payment status
-        payment_status = 'Pending' if new_plan != 'Free' else 'N/A'
-        
-        result = db.users.update_one(
-            {"username": username},
-            {"$set": {"plan": new_plan, "payment_status": payment_status}}
-        )
-        
-        if result.modified_count > 0:
-            logger.info(f"Updated plan for user {username} to {new_plan}")
-            return True
-        else:
-            logger.warning(f"No update for user {username}")
-            return False
-    except Exception as e:
-        logger.error(f"Error updating plan for user {username}: {str(e)}")
-        return False
-
-def update_api_keys(username, gpt_zero_key, originality_key):
-    """Update a user's API keys"""
-    try:
-        db = get_db_connection()
-        
-        result = db.users.update_one(
-            {"username": username},
-            {"$set": {
-                "api_keys.gpt_zero": gpt_zero_key,
-                "api_keys.originality": originality_key
-            }}
-        )
-        
-        if result.modified_count > 0:
-            logger.info(f"Updated API keys for user {username}")
-            return True
-        else:
-            logger.warning(f"No update for user {username}")
-            return False
-    except Exception as e:
-        logger.error(f"Error updating API keys for user {username}: {str(e)}")
-        return False
-
-# Transaction functions
-def create_transaction(user_id, amount, phone_number):
-    """Create a new transaction"""
-    try:
-        db = get_db_connection()
-        
-        # Create transaction ID
-        import random
-        import string
-        transaction_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
-        
-        # Create transaction document
-        transaction = {
-            "transaction_id": transaction_id,
-            "user_id": user_id,
-            "amount": amount,
-            "phone_number": phone_number,
-            "date": datetime.datetime.now(),
-            "status": "Completed"
-        }
-        
-        # Insert transaction
-        result = db.transactions.insert_one(transaction)
-        
-        if result.acknowledged:
-            # Update user payment status
-            db.users.update_one(
-                {"username": user_id},
-                {"$set": {"payment_status": "Paid"}}
-            )
-            
-            logger.info(f"Created transaction {transaction_id} for user {user_id}")
-            return transaction
-        else:
-            logger.error(f"Failed to create transaction for user {user_id}")
-            return None
-    except Exception as e:
-        logger.error(f"Error creating transaction for user {user_id}: {str(e)}")
-        return None
-
-def get_user_transactions(user_id):
-    """Get all transactions for a user"""
-    try:
-        db = get_db_connection()
-        transactions = list(db.transactions.find({"user_id": user_id}))
-        
-        # Convert ObjectId to string for each transaction
-        for transaction in transactions:
-            if '_id' in transaction:
-                transaction['_id'] = str(transaction['_id'])
-            
-        return transactions
-    except Exception as e:
-        logger.error(f"Error getting transactions for user {user_id}: {str(e)}")
-        return []
-
-# Initialize database and add demo user if it doesn't exist
 def init_db():
-    """Initialize the database with demo data"""
+    """Initialize the database with collections and demo data."""
     try:
-        db = get_db_connection()
+        # Create indexes for users collection
+        if isinstance(users_collection, dict):
+            logger.warning("Using in-memory storage instead of MongoDB")
+            return
+            
+        # Create unique index on username
+        users_collection.create_index("username", unique=True)
         
-        # Check if demo user exists
-        demo_user = db.users.find_one({"username": "demo"})
-        
-        if not demo_user:
-            # Create demo user
-            demo_user = {
+        # Add demo user if it doesn't exist
+        if users_collection.count_documents({"username": "demo"}) == 0:
+            users_collection.insert_one({
                 "username": "demo",
                 "password": generate_password_hash("demo"),
                 "email": "demo@example.com",
-                "plan": "Basic",
-                "joined_date": datetime.datetime.now(),
-                "words_used": 125,
-                "payment_status": "Paid",
-                "api_keys": {
-                    "gpt_zero": "",
-                    "originality": ""
+                "account_type": "basic",
+                "usage": {
+                    "requests": 0,
+                    "total_words": 0,
+                    "last_request": None
                 }
-            }
-            
-            db.users.insert_one(demo_user)
-            logger.info("Created demo user")
-            
-            # Create demo transaction
-            transaction = {
-                "transaction_id": "TXND3M0123456",
-                "user_id": "demo",
-                "amount": 500,  # Set an appropriate amount based on your pricing plans
-                "phone_number": "254712345678",
-                "date": datetime.datetime.now(),
-                "status": "Completed"
-            }
-            
-            db.transactions.insert_one(transaction)
-            logger.info("Created demo transaction")
-            
-        return True
+            })
+            logger.info("Added demo user to database")
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}")
-        return False
+
+def add_user(username, password, email, account_type="basic"):
+    """Add a new user to the database."""
+    try:
+        if isinstance(users_collection, dict):
+            # In-memory fallback
+            if username in users_collection:
+                return False, "Username already exists"
+            users_collection[username] = {
+                "username": username,
+                "password": generate_password_hash(password),
+                "email": email,
+                "account_type": account_type,
+                "usage": {
+                    "requests": 0,
+                    "total_words": 0,
+                    "last_request": None
+                }
+            }
+            return True, "User created successfully"
+        
+        # MongoDB implementation
+        user_data = {
+            "username": username,
+            "password": generate_password_hash(password),
+            "email": email,
+            "account_type": account_type,
+            "usage": {
+                "requests": 0,
+                "total_words": 0,
+                "last_request": None
+            }
+        }
+        
+        result = users_collection.insert_one(user_data)
+        if result.inserted_id:
+            return True, "User created successfully"
+        return False, "Failed to create user"
+    except Exception as e:
+        logger.error(f"Error adding user: {str(e)}")
+        return False, str(e)
+
+def get_user(username):
+    """Get a user by username."""
+    try:
+        if isinstance(users_collection, dict):
+            # In-memory fallback
+            return users_collection.get(username)
+        
+        # MongoDB implementation
+        user = users_collection.find_one({"username": username})
+        return user
+    except Exception as e:
+        logger.error(f"Error getting user: {str(e)}")
+        return None
+
+def verify_user(username, password):
+    """Verify a user's credentials."""
+    try:
+        user = get_user(username)
+        if not user:
+            return False, "User not found"
+        
+        if isinstance(users_collection, dict):
+            # In-memory fallback
+            if check_password_hash(user["password"], password):
+                return True, user
+            return False, "Invalid password"
+        
+        # MongoDB implementation
+        if check_password_hash(user["password"], password):
+            return True, user
+        return False, "Invalid password"
+    except Exception as e:
+        logger.error(f"Error verifying user: {str(e)}")
+        return False, str(e)
+
+def update_user_usage(username, words_processed):
+    """Update a user's usage statistics."""
+    try:
+        if isinstance(users_collection, dict):
+            # In-memory fallback
+            if username not in users_collection:
+                return False, "User not found"
+            
+            user = users_collection[username]
+            user["usage"]["requests"] += 1
+            user["usage"]["total_words"] += words_processed
+            user["usage"]["last_request"] = "now"  # Simplified for in-memory
+            return True, "Usage updated"
+        
+        # MongoDB implementation
+        from datetime import datetime
+        result = users_collection.update_one(
+            {"username": username},
+            {"$inc": {
+                "usage.requests": 1,
+                "usage.total_words": words_processed
+            },
+            "$set": {
+                "usage.last_request": datetime.now()
+            }}
+        )
+        
+        if result.modified_count:
+            return True, "Usage updated"
+        return False, "Failed to update usage"
+    except Exception as e:
+        logger.error(f"Error updating user usage: {str(e)}")
+        return False, str(e)
+
+def update_user_tier(username, new_tier):
+    """Update a user's account tier."""
+    if new_tier not in USER_TIERS:
+        return False, f"Invalid tier: {new_tier}"
+        
+    try:
+        if isinstance(users_collection, dict):
+            # In-memory fallback
+            if username not in users_collection:
+                return False, "User not found"
+            
+            users_collection[username]["account_type"] = new_tier
+            return True, f"User tier updated to {USER_TIERS[new_tier]['name']}"
+        
+        # MongoDB implementation
+        result = users_collection.update_one(
+            {"username": username},
+            {"$set": {"account_type": new_tier}}
+        )
+        
+        if result.modified_count:
+            return True, f"User tier updated to {USER_TIERS[new_tier]['name']}"
+        return False, "Failed to update user tier"
+    except Exception as e:
+        logger.error(f"Error updating user tier: {str(e)}")
+        return False, str(e)
+
+def get_word_limit(account_type):
+    """Get the word limit for a given account type."""
+    tier_info = USER_TIERS.get(account_type, USER_TIERS['basic'])
+    return tier_info['max_words']
+    
+def get_tier_info(account_type):
+    """Get the full tier information for a given account type."""
+    return USER_TIERS.get(account_type, USER_TIERS['basic'])
+
+def get_all_tiers():
+    """Get information about all available tiers."""
+    return USER_TIERS
