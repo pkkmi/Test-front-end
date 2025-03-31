@@ -56,8 +56,35 @@
               <button type="submit" class="btn btn-primary btn-lg px-5">
                 <i class="fas fa-magic mr-2"></i> Humanize
               </button>
+              
+              <!-- AI Detector Button (Hidden by default, shown after humanization) -->
+              {% if humanized_text %}
+              <button type="button" id="ai-detector-btn" class="btn btn-warning btn-lg px-5 ml-2" onclick="detectAI()">
+                <i class="fas fa-search mr-2"></i> AI Detector
+              </button>
+              {% endif %}
             </div>
           </form>
+          
+          <!-- AI Detection Results (Hidden initially) -->
+          <div id="ai-score-container" class="mt-4" style="display: none;">
+            <div class="card">
+              <div class="card-header bg-light">
+                <h5 class="mb-0">AI Detection Score</h5>
+              </div>
+              <div class="card-body">
+                <div class="text-center mb-3">
+                  <div id="score-indicator" class="d-inline-block p-3 rounded-circle" style="width: 80px; height: 80px;">
+                    <span id="ai-score" class="h2">--</span><span class="h4">%</span>
+                  </div>
+                </div>
+                <p class="text-center" id="ai-score-message">AI detection score will appear here.</p>
+                <div class="progress">
+                  <div id="ai-score-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
           
           {% if metrics %}
           <div class="mt-4">
@@ -139,5 +166,79 @@
       });
     }
   });
+  
+  // AI Detection functionality
+  function detectAI() {
+    // Get the humanized text
+    const humanizedText = document.getElementById('humanized_text').value;
+    
+    if (!humanizedText.trim()) {
+      alert('No humanized text to analyze.');
+      return;
+    }
+    
+    // Show loading state
+    const aiDetectorBtn = document.getElementById('ai-detector-btn');
+    const originalBtnText = aiDetectorBtn.innerHTML;
+    aiDetectorBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Analyzing...';
+    aiDetectorBtn.disabled = true;
+    
+    // Make API request to the AI detector endpoint
+    fetch('/api/detect-ai', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: humanizedText })
+    })
+    .then(response => response.json())
+    .then(data => {
+      // Show results
+      document.getElementById('ai-score-container').style.display = 'block';
+      
+      // Update score
+      const score = data.ai_score;
+      document.getElementById('ai-score').textContent = score;
+      
+      // Update progress bar
+      const scoreBar = document.getElementById('ai-score-bar');
+      scoreBar.style.width = score + '%';
+      
+      // Set color based on score
+      let colorClass, message;
+      if (score < 30) {
+        colorClass = 'bg-success';
+        message = 'This text appears to be mostly human-written.';
+      } else if (score < 70) {
+        colorClass = 'bg-warning';
+        message = 'This text may contain some AI-generated content.';
+      } else {
+        colorClass = 'bg-danger';
+        message = 'This text is likely AI-generated.';
+      }
+      
+      // Apply color class to progress bar and indicator
+      scoreBar.className = 'progress-bar ' + colorClass;
+      document.getElementById('score-indicator').className = 'd-inline-block p-3 rounded-circle ' + colorClass + ' text-white';
+      
+      // Set message
+      document.getElementById('ai-score-message').textContent = message;
+      
+      // Reset button
+      aiDetectorBtn.innerHTML = originalBtnText;
+      aiDetectorBtn.disabled = false;
+      
+      // Scroll to the results
+      document.getElementById('ai-score-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      alert('An error occurred while analyzing the text. Please try again.');
+      
+      // Reset button
+      aiDetectorBtn.innerHTML = originalBtnText;
+      aiDetectorBtn.disabled = false;
+    });
+  }
 </script>
 {% endblock %}
