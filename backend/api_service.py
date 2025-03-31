@@ -1,192 +1,174 @@
-"""
-API Service Module
-Handles communication with the external humanization API
-"""
-
 import os
-import time
 import requests
+import time
 import logging
-import json
-from dotenv import load_dotenv
-from .users import get_user_rate_limit, increment_user_usage
-
-# Load environment variables
-load_dotenv()
-
-# API configuration
-API_BASE_URL = os.getenv('HUMANIZER_API_URL', 'https://web-production-3db6c.up.railway.app')
-HUMANIZE_ENDPOINT = '/humanize_text'  # The specific endpoint for humanization
+import re
+from .db import get_tier_info, update_user_usage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# API configuration
+API_URL = os.environ.get('API_URL', 'https://web-production-3db6c.up.railway.app/humanize_text')
+API_KEY = os.environ.get('API_KEY', '')
+
 class HumanizerAPIError(Exception):
-    """Custom exception for API errors"""
+    """Custom exception for API errors."""
     pass
 
-def humanize_text(text, user_id, account_type):
+def count_words(text):
+    """Count the number of words in the given text."""
+    # Split text by whitespace and count non-empty strings
+    words = re.findall(r'\b\w+\b', text)
+    return len(words)
+
+def humanize_text(text, username, account_type):
     """
-    Send text to the humanizer API and return the response
+    Humanize the given text using the external API.
     
     Args:
-        text (str): Text to be humanized
-        user_id (str): User ID for rate limiting and tracking
-        account_type (str): Account type for rate limits
+        text (str): The text to humanize
+        username (str): The username of the user making the request
+        account_type (str): The account type/tier of the user
         
     Returns:
-        dict: Humanized text response with metadata
+        dict: A dictionary containing the humanized text and metrics
         
     Raises:
-        HumanizerAPIError: If the API request fails
+        HumanizerAPIError: If there's an issue with the API request
+        ValueError: If the text exceeds the user's word limit
     """
-    # Check rate limits
-    rate_limit = get_user_rate_limit(user_id, account_type)
-    if rate_limit['remaining'] <= 0:
-        raise HumanizerAPIError(f"Rate limit exceeded. Resets at {rate_limit['reset_time']}")
+    # Count words in the input text
+    word_count = count_words(text)
     
-    # Construct the full API URL
-    api_url = f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
+    # Get the word limit for the user's tier
+    tier_info = get_tier_info(account_type)
+    max_words = tier_info['max_words']
     
-    # Based on the error messages, the API expects a JSON with input_text field
-    headers = {
-        'Content-Type': 'application/json'
-    }
+    # Check if the text exceeds the word limit
+    if word_count > max_words:
+        raise ValueError(f"Text exceeds your {tier_info['name']} plan word limit of {max_words} words. Your text has {word_count} words.")
     
-    # Create the payload using the input_text field
-    payload = {
-        "input_text": text
-    }
+    # Log the request
+    logger.info(f"Humanizing text for user {username} ({account_type} tier) - {word_count} words")
     
-    # Log request information
-    logger.info(f"Sending request to API: {api_url}")
-    logger.info(f"Request payload: {json.dumps(payload)}")
+    # Record metrics
+    start_time = time.time()
     
-    # Make the request with error handling
     try:
-        start_time = time.time()
+        # Make the API request
+        payload = {"input_text": text}
+        headers = {}
         
-        # Make the POST request
-        response = requests.post(
-            api_url,
-            json=payload,
-            headers=headers,
-            timeout=30  # 30 second timeout
-        )
+        # Add API key if available
+        if API_KEY:
+            headers['Authorization'] = f'Bearer {API_KEY}'
         
-        # Log response details for debugging
-        logger.info(f"Response status code: {response.status_code}")
-        logger.info(f"Response headers: {dict(response.headers)}")
-        logger.info(f"Response content (sample): {response.text[:200] if response.text else 'Empty'}")
+        # Send the request
+        response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
         
-        # Check if the request was successful
-        if response.status_code != 200:
-            error_message = f"API request failed with status code {response.status_code}"
-            try:
-                error_data = response.json()
-                if 'detail' in error_data:
-                    error_message += f": {json.dumps(error_data['detail'])}"
-                elif 'error' in error_data:
-                    error_message += f": {error_data['error']}"
-            except:
-                if response.text:
-                    error_message += f": {response.text[:200]}"
-            
-            logger.error(error_message)
-            raise HumanizerAPIError(error_message)
-        
-        # Try to parse the response as JSON
-        try:
-            result = response.json()
-            logger.info(f"Parsed JSON response: {json.dumps(result)[:200]}")
-        except json.JSONDecodeError:
-            # If not JSON, treat the response as plain text
-            result = {
-                "humanized_text": response.text
-            }
-            logger.info("Response was not JSON, using plain text")
-        
-        # Get the humanized text from the response
-        # Based on testing, find the appropriate key for the result
-        if 'humanized_text' in result:
-            humanized_text = result['humanized_text']
-        elif 'output_text' in result:
-            humanized_text = result['output_text']
-        elif 'result' in result:
-            humanized_text = result['result']
-        elif 'output' in result:
-            humanized_text = result['output']
-        else:
-            # Default to the full response text if no recognized key
-            humanized_text = response.text
-        
+        # Calculate response time
         response_time = time.time() - start_time
         
-        # Log API request for monitoring
-        logger.info(f"API request completed in {response_time:.2f}s")
+        # Check for API errors
+        if response.status_code != 200:
+            error_msg = f"API request failed with status code {response.status_code}"
+            try:
+                error_detail = response.json()
+                error_msg += f" - {error_detail}"
+            except:
+                pass
+            logger.error(error_msg)
+            raise HumanizerAPIError(error_msg)
         
-        # Track usage
-        increment_user_usage(user_id, len(text.split()))
-        
-        # Construct and return the result
-        return {
-            'original_text': text,
-            'humanized_text': humanized_text,
-            'metrics': {
-                'response_time': response_time,
-                'characters_processed': len(text)
-            },
-            'usage': {
-                'remaining': rate_limit['remaining'] - 1
+        # Parse the response
+        try:
+            response_data = response.json()
+            
+            # Extract the humanized text from the response based on different possible formats
+            humanized_text = None
+            
+            # Try different possible response formats
+            if 'humanized_text' in response_data:
+                humanized_text = response_data['humanized_text']
+            elif 'output_text' in response_data:
+                humanized_text = response_data['output_text']
+            elif 'result' in response_data:
+                humanized_text = response_data['result']
+            elif 'text' in response_data:
+                humanized_text = response_data['text']
+            else:
+                # If no recognized format, use the first string value found
+                for key, value in response_data.items():
+                    if isinstance(value, str) and len(value) > 10:  # Reasonable text size
+                        humanized_text = value
+                        break
+            
+            # If we still don't have humanized text, use the whole response as a fallback
+            if not humanized_text:
+                humanized_text = str(response_data)
+            
+            # Update user usage statistics
+            update_user_usage(username, word_count)
+            
+            # Return the humanized text and metrics
+            return {
+                'humanized_text': humanized_text,
+                'metrics': {
+                    'input_words': word_count,
+                    'output_words': count_words(humanized_text),
+                    'response_time': response_time
+                },
+                'tier_info': {
+                    'name': tier_info['name'],
+                    'word_limit': max_words,
+                    'remaining': max_words - word_count
+                }
             }
-        }
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API connection error: {str(e)}")
-        raise HumanizerAPIError(f"Failed to connect to humanizer API: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error in API request: {str(e)}")
-        raise HumanizerAPIError(f"Unexpected error: {str(e)}")
+            
+        except Exception as e:
+            logger.error(f"Error parsing API response: {str(e)}")
+            raise HumanizerAPIError(f"Error parsing API response: {str(e)}")
+            
+    except requests.RequestException as e:
+        logger.error(f"Error making API request: {str(e)}")
+        raise HumanizerAPIError(f"Error making API request: {str(e)}")
 
 def get_api_status():
-    """Check the status of the humanizer API"""
+    """Check if the API is online and responding."""
     try:
-        # Try to access the humanize endpoint with a minimal request
-        api_url = f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
+        # Use a small sample text to avoid unnecessary processing
+        payload = {"input_text": "Hello world."}
+        headers = {}
         
-        # Use the correct format with input_text field
-        headers = {'Content-Type': 'application/json'}
-        payload = {"input_text": "Test connection"}
+        # Add API key if available
+        if API_KEY:
+            headers['Authorization'] = f'Bearer {API_KEY}'
+            
+        # Send a test request
+        response = requests.post(API_URL, json=payload, headers=headers, timeout=5)
         
-        response = requests.post(
-            api_url,
-            json=payload,
-            headers=headers,
-            timeout=5
-        )
-        
+        # Check if the API is responding properly
         if response.status_code == 200:
             return {
                 'status': 'online',
-                'latency': response.elapsed.total_seconds(),
-                'endpoint': HUMANIZE_ENDPOINT,
-                'full_url': api_url
+                'message': 'API is operational',
+                'url': API_URL,
+                'has_key': bool(API_KEY)
             }
         else:
             return {
-                'status': 'degraded',
-                'latency': response.elapsed.total_seconds(),
-                'message': f"API returned status code {response.status_code}",
-                'endpoint': HUMANIZE_ENDPOINT,
-                'full_url': api_url,
-                'response': response.text[:200]
+                'status': 'error',
+                'message': f'API returned status code {response.status_code}',
+                'url': API_URL,
+                'has_key': bool(API_KEY)
             }
             
-    except Exception as e:
+    except requests.RequestException as e:
         return {
             'status': 'offline',
-            'message': f"Error checking API status: {str(e)}",
-            'endpoint': HUMANIZE_ENDPOINT,
-            'full_url': f"{API_BASE_URL}{HUMANIZE_ENDPOINT}"
+            'message': f'API connection error: {str(e)}',
+            'url': API_URL,
+            'has_key': bool(API_KEY)
         }
