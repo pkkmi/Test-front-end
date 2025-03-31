@@ -3,7 +3,7 @@ import requests
 import time
 import logging
 import re
-from .db import get_tier_info, update_user_usage
+from .db import update_user_usage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,35 +23,25 @@ def count_words(text):
     words = re.findall(r'\b\w+\b', text)
     return len(words)
 
-def humanize_text(text, username, account_type):
+def humanize_text(text, username):
     """
     Humanize the given text using the external API.
     
     Args:
         text (str): The text to humanize
         username (str): The username of the user making the request
-        account_type (str): The account type/tier of the user
         
     Returns:
         dict: A dictionary containing the humanized text and metrics
         
     Raises:
         HumanizerAPIError: If there's an issue with the API request
-        ValueError: If the text exceeds the user's word limit
     """
     # Count words in the input text
     word_count = count_words(text)
     
-    # Get the word limit for the user's tier
-    tier_info = get_tier_info(account_type)
-    max_words = tier_info['max_words']
-    
-    # Check if the text exceeds the word limit
-    if word_count > max_words:
-        raise ValueError(f"Text exceeds your {tier_info['name']} plan word limit of {max_words} words. Your text has {word_count} words.")
-    
     # Log the request
-    logger.info(f"Humanizing text for user {username} ({account_type} tier) - {word_count} words")
+    logger.info(f"Humanizing text for user {username} - {word_count} words")
     
     # Record metrics
     start_time = time.time()
@@ -119,11 +109,6 @@ def humanize_text(text, username, account_type):
                     'input_words': word_count,
                     'output_words': count_words(humanized_text),
                     'response_time': response_time
-                },
-                'tier_info': {
-                    'name': tier_info['name'],
-                    'word_limit': max_words,
-                    'remaining': max_words - word_count
                 }
             }
             
