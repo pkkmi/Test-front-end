@@ -54,19 +54,31 @@
         </div>
         <div class="card-body">
           <div class="row">
-            <div class="col-md-4">
+            <div class="col-md-3">
               <div class="text-center">
                 <h5>Total Requests</h5>
                 <div class="display-4">{{ user.usage.requests if user and user.usage else 0 }}</div>
               </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <div class="text-center">
                 <h5>Words Processed</h5>
                 <div class="display-4">{{ user.usage.total_words if user and user.usage else 0 }}</div>
               </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+              <div class="text-center">
+                <h5>Words Remaining</h5>
+                <div class="display-4">
+                  {% if user and user.usage and user.plan %}
+                    {{ user.plan.monthly_word_limit - user.usage.total_words }}
+                  {% else %}
+                    10000
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
               <div class="text-center">
                 <h5>Last Request</h5>
                 <div class="lead">
