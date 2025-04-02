@@ -34,7 +34,8 @@ if api_status.get('status') != 'online':
 
 @app.route('/')
 def index():
-    """Render the homepage."""
+    """Render the homepage with text processing capabilities."""
+    # For the simplified home page that can handle both logged-in and guest users
     return render_template('index.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -139,13 +140,9 @@ def account():
 @app.route('/humanize', methods=['GET', 'POST'])
 def humanize():
     """Handle text humanization requests."""
-    # Check if user is logged in
-    if 'user_id' not in session:
-        flash('Please log in to use the humanization feature', 'warning')
-        return redirect(url_for('login'))
-    
-    # Get user info
-    user_id = session['user_id']
+    # Allow both logged-in users and guests to use the humanization from the home page
+    # For tracking purposes, we'll still get the user_id if available
+    user_id = session.get('user_id', 'guest')
     
     if request.method == 'POST':
         # Get original text from form
@@ -153,6 +150,9 @@ def humanize():
         
         if not original_text:
             flash('Please enter text to humanize', 'warning')
+            # If request comes from home page, redirect back to home
+            if request.referrer and 'humanize' not in request.referrer:
+                return redirect(url_for('index'))
             return render_template('humanize.html')
         
         # Count words in the input text
@@ -187,6 +187,9 @@ def humanize():
             # API error
             message = f"API Error: {str(e)}"
             flash(message, 'danger')
+            # If request comes from home page, redirect back to home
+            if request.referrer and 'humanize' not in request.referrer:
+                return redirect(url_for('index'))
             return render_template('humanize.html', 
                                   original_text=original_text,
                                   message=message,
@@ -196,6 +199,9 @@ def humanize():
             # Unexpected error
             message = f"Unexpected error: {str(e)}"
             flash(message, 'danger')
+            # If request comes from home page, redirect back to home
+            if request.referrer and 'humanize' not in request.referrer:
+                return redirect(url_for('index'))
             return render_template('humanize.html', 
                                   original_text=original_text,
                                   message=message,
