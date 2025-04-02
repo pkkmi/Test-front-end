@@ -3,10 +3,12 @@
 {% block title %}Andikar AI - AI Text Humanizer{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-  <!-- Welcome Section -->
-  <div class="jumbotron text-center">
-    <h1 class="display-4">Welcome, {{ session.user_id if session.user_id else 'Guest' }}!</h1>
+<div class="container mt-3">
+  <!-- Welcome Section - Smaller to match screenshot -->
+  <div class="card mb-4">
+    <div class="card-body p-3 bg-primary text-white">
+      <h3 class="mb-0">Welcome, {{ session.user_id if session.user_id else 'Guest' }}!</h3>
+    </div>
   </div>
 
   <!-- Text Humanization Panel -->
