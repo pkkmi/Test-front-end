@@ -4,89 +4,286 @@
 
 {% block content %}
 <div class="container mt-5">
+  <!-- Welcome Section -->
   <div class="jumbotron text-center">
-    <h1 class="display-4">Welcome to Andikar AI</h1>
-    <p class="lead">Transform AI-generated content into natural human-like text</p>
-    <hr class="my-4">
-    <p>Our advanced humanization technology helps you create content that feels authentic and engaging.</p>
-    
-    <div class="mt-5">
-      {% if session.user_id %}
-        <a href="{{ url_for('humanize') }}" class="btn btn-primary btn-lg mr-3">
-          <i class="fas fa-magic mr-2"></i> Start Humanizing
-        </a>
-        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-lg">
-          <i class="fas fa-columns mr-2"></i> Go to Dashboard
-        </a>
-      {% else %}
-        <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg mr-3">
-          <i class="fas fa-sign-in-alt mr-2"></i> Login
-        </a>
-        <a href="{{ url_for('register') }}" class="btn btn-outline-secondary btn-lg">
-          <i class="fas fa-user-plus mr-2"></i> Register
-        </a>
-      {% endif %}
+    <h1 class="display-4">Welcome, {{ session.user_id if session.user_id else 'Guest' }}!</h1>
+  </div>
+
+  <!-- Text Humanization Panel -->
+  <div class="row mb-4">
+    <div class="col-md-10 offset-md-1">
+      <div class="card shadow">
+        <div class="card-body">
+          <div class="row mb-4">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label for="original_text"><strong>Original Text</strong></label>
+                <textarea class="form-control" id="original_text" name="original_text" rows="12" placeholder="Enter text to humanize or detect AI..."></textarea>
+                
+                <!-- Word Counter -->
+                <div class="mt-2">
+                  <div class="d-flex justify-content-between">
+                    <small class="text-muted">
+                      Word count: <span id="word-count">0</span>
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="form-group">
+                <label for="result_text"><strong>Results</strong></label>
+                <textarea class="form-control" id="result_text" name="result_text" rows="12" placeholder="Results will appear here..." readonly></textarea>
+                <div class="text-right mt-2" id="copy-btn-container" style="display: none;">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" 
+                          onclick="copyToClipboard()">
+                    Copy to Clipboard
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="text-center">
+            <button type="button" class="btn btn-primary btn-lg px-5 mr-2" id="humanize-btn" onclick="processText('humanize')">
+              <i class="fas fa-magic mr-2"></i> Humanize
+            </button>
+            
+            <button type="button" class="btn btn-warning btn-lg px-5" id="ai-detector-btn" onclick="processText('detect')">
+              <i class="fas fa-search mr-2"></i> AI Detector
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="row mt-5">
-    <div class="col-md-4">
-      <div class="card mb-4 shadow-sm">
-        <div class="card-body">
-          <h3 class="card-title"><i class="fas fa-robot text-primary"></i> AI Detection Bypass</h3>
-          <p class="card-text">Our technology helps your AI-generated content pass through AI content detectors.</p>
-        </div>
-      </div>
+  <!-- Processing indicator (hidden by default) -->
+  <div id="processing-indicator" class="text-center mt-4" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+      <span class="sr-only">Loading...</span>
     </div>
-    <div class="col-md-4">
-      <div class="card mb-4 shadow-sm">
-        <div class="card-body">
-          <h3 class="card-title"><i class="fas fa-user text-primary"></i> Human-Like Writing</h3>
-          <p class="card-text">Transform robotic, formal AI text into natural-sounding human writing.</p>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4">
-      <div class="card mb-4 shadow-sm">
-        <div class="card-body">
-          <h3 class="card-title"><i class="fas fa-bolt text-primary"></i> Fast & Efficient</h3>
-          <p class="card-text">Process your content quickly with our optimized humanization algorithms.</p>
-        </div>
-      </div>
+    <p class="mt-2" id="processing-message">Processing your text...</p>
+    <div class="progress mt-3">
+      <div id="processing-progress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
     </div>
   </div>
-
-  <div class="row mt-4">
+  
+  <!-- AI Detection Results (Hidden initially) -->
+  <div id="ai-score-container" class="mt-4" style="display: none;">
     <div class="col-md-8 offset-md-2">
-      <div class="card shadow-sm">
+      <div class="card">
+        <div class="card-header bg-light">
+          <h5 class="mb-0">AI Detection Score</h5>
+        </div>
         <div class="card-body">
-          <h3 class="text-center mb-4">How It Works</h3>
-          <div class="row">
-            <div class="col-md-4 text-center">
-              <div class="rounded-circle bg-light p-3 d-inline-block mb-3">
-                <i class="fas fa-paste fa-2x text-primary"></i>
-              </div>
-              <h5>1. Paste AI Text</h5>
-              <p>Upload your AI-generated content to our platform</p>
+          <div class="text-center mb-3">
+            <div id="score-indicator" class="d-inline-block p-3 rounded-circle" style="width: 80px; height: 80px;">
+              <span id="ai-score" class="h2">--</span><span class="h4">%</span>
             </div>
-            <div class="col-md-4 text-center">
-              <div class="rounded-circle bg-light p-3 d-inline-block mb-3">
-                <i class="fas fa-magic fa-2x text-primary"></i>
-              </div>
-              <h5>2. Humanize</h5>
-              <p>Our algorithm transforms the content instantly</p>
-            </div>
-            <div class="col-md-4 text-center">
-              <div class="rounded-circle bg-light p-3 d-inline-block mb-3">
-                <i class="fas fa-check-circle fa-2x text-primary"></i>
-              </div>
-              <h5>3. Get Results</h5>
-              <p>Copy your human-like text ready for use</p>
-            </div>
+          </div>
+          <p class="text-center" id="ai-score-message">AI detection score will appear here.</p>
+          <div class="progress">
+            <div id="ai-score-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
           </div>
         </div>
       </div>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Get references to the text area and counter elements
+    const textArea = document.getElementById('original_text');
+    const wordCountElement = document.getElementById('word-count');
+    
+    // Function to count words in text
+    function countWords(text) {
+      return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    }
+    
+    // Function to update the word count display
+    function updateWordCount() {
+      if (!textArea || !wordCountElement) return;
+      
+      const text = textArea.value;
+      const count = countWords(text);
+      
+      // Update word count display
+      wordCountElement.textContent = count;
+    }
+    
+    // Add event listener for text input
+    if (textArea) {
+      textArea.addEventListener('input', updateWordCount);
+      
+      // Initialize word count on page load
+      updateWordCount();
+    }
+    
+    // Handle paste events
+    if (textArea) {
+      textArea.addEventListener('paste', function() {
+        setTimeout(updateWordCount, 10);
+      });
+    }
+  });
+  
+  // Process text (either humanize or detect AI)
+  function processText(action) {
+    // Get the text
+    const text = document.getElementById('original_text').value;
+    
+    if (!text.trim()) {
+      alert('Please enter text to process.');
+      return;
+    }
+    
+    // Show processing indicator
+    const processingIndicator = document.getElementById('processing-indicator');
+    const processingMessage = document.getElementById('processing-message');
+    const processingProgress = document.getElementById('processing-progress');
+    const resultText = document.getElementById('result_text');
+    const copyBtnContainer = document.getElementById('copy-btn-container');
+    const aiScoreContainer = document.getElementById('ai-score-container');
+    
+    // Set message based on action
+    if (action === 'humanize') {
+      processingMessage.textContent = 'Humanizing your text... This may take up to a minute for longer texts.';
+    } else {
+      processingMessage.textContent = 'Analyzing text for AI detection...';
+    }
+    
+    // Show processing indicator and hide previous results
+    processingIndicator.style.display = 'block';
+    aiScoreContainer.style.display = 'none';
+    
+    // Disable buttons during processing
+    document.getElementById('humanize-btn').disabled = true;
+    document.getElementById('ai-detector-btn').disabled = true;
+    
+    // Simulate progress for visual feedback
+    let progress = 0;
+    const progressInterval = setInterval(function() {
+      progress += 1;
+      if (progress > 95) {
+        clearInterval(progressInterval);
+      }
+      processingProgress.style.width = progress + '%';
+    }, 600);
+    
+    // Make the appropriate API call
+    if (action === 'humanize') {
+      // For humanization, we need to post to the server
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '{{ url_for("humanize") }}';
+      
+      const hiddenField = document.createElement('input');
+      hiddenField.type = 'hidden';
+      hiddenField.name = 'original_text';
+      hiddenField.value = text;
+      
+      form.appendChild(hiddenField);
+      document.body.appendChild(form);
+      form.submit();
+    } else {
+      // For AI detection, use the API endpoint
+      fetch('/api/detect-ai', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: text })
+      })
+      .then(response => response.json())
+      .then(data => {
+        // Clear progress interval
+        clearInterval(progressInterval);
+        
+        // Hide processing indicator
+        processingIndicator.style.display = 'none';
+        
+        // Show AI score container
+        aiScoreContainer.style.display = 'block';
+        
+        // Update score
+        const score = data.ai_score;
+        document.getElementById('ai-score').textContent = score;
+        
+        // Update progress bar
+        const scoreBar = document.getElementById('ai-score-bar');
+        scoreBar.style.width = score + '%';
+        
+        // Set color based on score
+        let colorClass, message;
+        if (score < 30) {
+          colorClass = 'bg-success';
+          message = 'This text appears to be mostly human-written.';
+        } else if (score < 70) {
+          colorClass = 'bg-warning';
+          message = 'This text may contain some AI-generated content.';
+        } else {
+          colorClass = 'bg-danger';
+          message = 'This text is likely AI-generated.';
+        }
+        
+        // Apply color class to progress bar and indicator
+        scoreBar.className = 'progress-bar ' + colorClass;
+        document.getElementById('score-indicator').className = 'd-inline-block p-3 rounded-circle ' + colorClass + ' text-white';
+        
+        // Set message
+        document.getElementById('ai-score-message').textContent = message;
+        
+        // Show result in the result textbox
+        resultText.value = `AI Detection Score: ${score}%\n\n${message}`;
+        copyBtnContainer.style.display = 'block';
+        
+        // Re-enable buttons
+        document.getElementById('humanize-btn').disabled = false;
+        document.getElementById('ai-detector-btn').disabled = false;
+        
+        // Scroll to the results
+        aiScoreContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        
+        // Clear progress interval
+        clearInterval(progressInterval);
+        
+        // Hide processing indicator
+        processingIndicator.style.display = 'none';
+        
+        // Show error message
+        resultText.value = 'An error occurred while analyzing the text. Please try again.';
+        
+        // Re-enable buttons
+        document.getElementById('humanize-btn').disabled = false;
+        document.getElementById('ai-detector-btn').disabled = false;
+      });
+    }
+  }
+  
+  // Copy to clipboard function
+  function copyToClipboard() {
+    const resultText = document.getElementById('result_text');
+    resultText.select();
+    document.execCommand('copy');
+    
+    // Show feedback
+    const copyBtn = document.querySelector('#copy-btn-container button');
+    const originalText = copyBtn.innerHTML;
+    copyBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Copied!';
+    
+    // Reset after 2 seconds
+    setTimeout(() => {
+      copyBtn.innerHTML = originalText;
+    }, 2000);
+  }
+</script>
 {% endblock %}
