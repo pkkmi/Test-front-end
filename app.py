@@ -80,7 +80,7 @@ def login():
         if username == 'demo' and password == 'demo':
             session['user_id'] = 'demo'
             flash('Logged in as demo user', 'success')
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('humanize'))
         
         # Verify user credentials
         success, result = verify_user(username, password)
@@ -89,7 +89,7 @@ def login():
             # Store user info in session
             session['user_id'] = username
             flash('Login successful!', 'success')
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('humanize'))
         else:
             flash(f'Login failed: {result}', 'danger')
             return render_template('login.html')
@@ -140,9 +140,13 @@ def account():
 @app.route('/humanize', methods=['GET', 'POST'])
 def humanize():
     """Handle text humanization requests."""
-    # Allow both logged-in users and guests to use the humanization from the home page
-    # For tracking purposes, we'll still get the user_id if available
-    user_id = session.get('user_id', 'guest')
+    # Check if user is logged in
+    if 'user_id' not in session:
+        flash('Please log in to access the humanize feature', 'warning')
+        return redirect(url_for('login'))
+    
+    # Get user_id for tracking purposes
+    user_id = session.get('user_id')
     
     if request.method == 'POST':
         # Get original text from form
