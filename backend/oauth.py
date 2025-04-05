@@ -11,7 +11,7 @@ from oauthlib.oauth2 import WebApplicationClient
 import requests
 
 # Configuration for Google OAuth
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "YOUR_GOOGLE_CLIENT_SECRET")
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
