@@ -1,92 +1,62 @@
-# Andikar AI Frontend
+# Andikar AI - Frontend
 
-A Flask frontend application for humanizing AI-generated text using the Andikar AI ecosystem.
+This repository contains the frontend web application for Andikar AI, a tool for humanizing AI-generated text.
 
-## Setup Instructions
+## Google OAuth Setup
 
-### Prerequisites
-- Python 3.8 or higher
-- [Andikar Humanizer API](https://github.com/granitevolition/text-humanizer-api) running at https://web-production-3db6c.up.railway.app/ or another endpoint
+This application uses Google OAuth for authentication. Follow these steps to set it up:
 
-### Installation
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select an existing one)
+3. Navigate to "APIs & Services" > "Credentials"
+4. Click "Create Credentials" > "OAuth client ID"
+5. Select "Web application" as the application type
+6. Add a name for your OAuth client
+7. Add the following Authorized JavaScript origins:
+   - `http://localhost:5000` (for local development)
+   - Your production domain (e.g., `https://andikar.ai`)
+8. Add the following Authorized redirect URIs:
+   - `http://localhost:5000/callback` (for local development)
+   - `https://your-domain.com/callback` (for production)
+9. Click "Create"
+10. Note your Client ID and Client Secret
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/granitevolition/andikar-frontend.git
-   cd andikar-frontend
-   ```
+## Environment Variables
 
-2. Create a virtual environment:
-   ```
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-4. Configure environment variables:
-   ```
-   cp .env.example .env
-   ```
-   Edit `.env` file to set the appropriate values, especially:
-   - `HUMANIZER_API_URL` - URL to your running Humanizer API service
-
-## Running the Application
-
-Start the Flask development server:
-```
-python app.py
-```
-
-The application will be available at http://localhost:5000/
-
-### Testing the Humanizer API Connection
-
-If you're having problems with the Humanizer API connection, use the diagnostic tool:
+Create a `.env` file in the root directory and add the following environment variables:
 
 ```
-python test_api.py
+FLASK_APP=app.py
+FLASK_ENV=development
+SECRET_KEY=your-secret-key
+MONGODB_URI=your-mongodb-uri
+DB_NAME=andikar_ai
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
 
-This script will test the connection to the Humanizer API and provide detailed information about any issues.
+## Installation and Setup
 
-## Troubleshooting
+1. Clone this repository
+2. Create a virtual environment: `python -m venv venv`
+3. Activate the virtual environment:
+   - Windows: `venv\Scripts\activate`
+   - Linux/Mac: `source venv/bin/activate`
+4. Install dependencies: `pip install -r requirements.txt`
+5. Run the application: `flask run`
 
-### Humanizer API Connection Issues
+## Rollback Instructions
 
-If the humanizing functionality is not working:
+If you need to roll back to the original authentication system:
 
-1. Check that the Humanizer API is running at the URL specified in your `.env` file
-2. Run `python test_api.py` to diagnose connection issues
-3. Verify that the endpoint is correct (should be `/humanize_text`)
-4. Check for any network/firewall issues that might block the connection
-5. Inspect the logs for detailed error information
-
-The application includes a fallback humanization function if the API is temporarily unavailable.
+1. Replace the content of `app.py` with the code in `backup/auth_backup.py`
+2. Restore the original login.html template
+3. Remove the Google OAuth related files and dependencies
 
 ## Features
 
-- User authentication and registration
-- Text humanization using external API
+- Google OAuth authentication
+- Text humanization
 - AI content detection
-- User dashboard with usage statistics
-- Tiered pricing plans with word limits
-- M-Pesa payment integration (simulated)
-- API key management for integration
-
-## Project Structure
-
-- `app.py` - Main Flask application
-- `utils.py` - Utility functions including API integration
-- `models.py` - Data models and in-memory databases
-- `templates/` - HTML templates (embedded in templates.py)
-- `static/` - CSS and JavaScript files
-- `config.py` - Application configuration
-- `test_api.py` - Diagnostic tool for API connection
-
-## Deployment
-
-The application is designed to be deployed on Railway.app or similar platform. See the Railway documentation for deployment instructions.
+- User dashboard
+- Usage statistics
