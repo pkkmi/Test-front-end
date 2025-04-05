@@ -378,8 +378,37 @@ def method_not_allowed(e):
             'allowed_methods': e.valid_methods
         }), 405
     
-    # For regular page requests, redirect to home with a message
-    flash(f'Invalid request method: {request.method}', 'danger')
+    # For regular page requests, show a custom error page
+    return render_template('errors/405.html', 
+                          allowed_methods=e.valid_methods), 405
+
+# Register error handlers for common HTTP errors
+@app.errorhandler(400)
+def bad_request(e):
+    """Handle Bad Request errors."""
+    app.logger.error(f"Bad Request error: {request.method} {request.path}")
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Bad Request', 'message': str(e)}), 400
+    flash('Invalid request. Please try again.', 'danger')
+    return redirect(url_for('index'))
+
+@app.errorhandler(404)
+def page_not_found(e):
+    """Handle Page Not Found errors."""
+    app.logger.error(f"Page Not Found: {request.method} {request.path}")
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Not Found', 'message': 'The requested resource was not found'}), 404
+    flash('The page you requested was not found.', 'warning')
+    return redirect(url_for('index'))
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    """Handle Internal Server Error."""
+    app.logger.error(f"Internal Server Error: {request.method} {request.path}")
+    app.logger.exception("Exception details")
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Internal Server Error', 'message': 'An unexpected error occurred'}), 500
+    flash('An unexpected error occurred. Please try again later.', 'danger')
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
