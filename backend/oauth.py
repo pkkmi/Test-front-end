@@ -15,6 +15,10 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "934412857118-i13t5ma9afue
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "YOUR_GOOGLE_CLIENT_SECRET")
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
+# Explicitly set the callback URL - could be overridden by environment variable
+# This should match EXACTLY what's in your Google Cloud Console!
+CALLBACK_URL = os.environ.get("GOOGLE_CALLBACK_URL", "https://your-app-domain.com/callback")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,8 +46,20 @@ def get_google_auth_url(redirect_uri=None):
         # and provide the redirect location
         authorization_endpoint = google_provider_cfg["authorization_endpoint"]
         
+        # If redirect_uri is not provided, use the configured callback URL
+        # instead of generating it with url_for
         if not redirect_uri:
-            redirect_uri = url_for('callback', _external=True)
+            if os.environ.get("FLASK_ENV") == "development":
+                # In development, use url_for which generates http://localhost:5000/callback
+                redirect_uri = url_for('callback', _external=True)
+                logger.info(f"Using development callback URL: {redirect_uri}")
+            else:
+                # In production, use the explicitly configured callback URL
+                redirect_uri = CALLBACK_URL
+                logger.info(f"Using production callback URL: {redirect_uri}")
+            
+        # Log the redirect URI being used (helpful for debugging)
+        logger.info(f"OAuth redirect URI: {redirect_uri}")
             
         # Generate URL for request to Google's OAuth 2.0 server
         return client.prepare_request_uri(
@@ -65,8 +81,14 @@ def get_google_tokens(code, redirect_uri=None):
 
         token_endpoint = google_provider_cfg["token_endpoint"]
         
+        # Use the same redirect URI logic as in get_google_auth_url
         if not redirect_uri:
-            redirect_uri = url_for('callback', _external=True)
+            if os.environ.get("FLASK_ENV") == "development":
+                redirect_uri = url_for('callback', _external=True)
+            else:
+                redirect_uri = CALLBACK_URL
+                
+        logger.info(f"Token exchange using redirect URI: {redirect_uri}")
             
         # Prepare and send request to get tokens
         token_url, headers, body = client.prepare_token_request(
