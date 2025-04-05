@@ -229,15 +229,36 @@
     aiDetectorBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Analyzing...';
     aiDetectorBtn.disabled = true;
     
-    // Make API request to the AI detector endpoint
+    // Make API request to the AI detector endpoint with proper error handling
     fetch('/api/detect-ai', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
       body: JSON.stringify({ text: humanizedText })
     })
-    .then(response => response.json())
+    .then(response => {
+      if (!response.ok) {
+        // Handle HTTP errors
+        if (response.status === 405) {
+          // Method Not Allowed - try GET as fallback
+          aiDetectorBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Trying alternative method...';
+          
+          // Construct URL with query parameter
+          const params = new URLSearchParams();
+          params.append('text', humanizedText);
+          return fetch('/api/detect-ai?' + params.toString(), {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json'
+            }
+          });
+        }
+        throw new Error('Network response was not ok: ' + response.status);
+      }
+      return response.json();
+    })
     .then(data => {
       // Show results
       document.getElementById('ai-score-container').style.display = 'block';
@@ -279,7 +300,7 @@
     })
     .catch(error => {
       console.error('Error:', error);
-      alert('An error occurred while analyzing the text. Please try again.');
+      alert('An error occurred while analyzing the text: ' + error.message + '\nPlease try again.');
       
       // Reset button
       aiDetectorBtn.innerHTML = originalBtnText;
