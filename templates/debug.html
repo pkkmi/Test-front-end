@@ -30,7 +30,7 @@
         <h1 class="mb-4">Debug Information</h1>
         
         <div class="alert alert-warning">
-            <strong>Warning:</strong> This page is only available in development mode and shows sensitive information.
+            <strong>Debug Page (Updated):</strong> This page shows detailed diagnostic information.
         </div>
         
         <!-- Environment Section -->
@@ -47,6 +47,34 @@
                     <p>Google Client ID set: {% if session.get('google_client_id') %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}</p>
                     <p>Google Client Secret set: {% if session.get('google_client_secret') %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}</p>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Deployment Information -->
+        <div class="debug-section">
+            <h2 class="debug-title">Deployment Information</h2>
+            <div class="row">
+                {% if env_info %}
+                    <div class="col-md-6">
+                        <h5>Environment Variables</h5>
+                        <ul>
+                            {% for key, value in env_info.items() %}
+                                <li><strong>{{ key }}:</strong> {{ value }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+                
+                {% if file_status %}
+                    <div class="col-md-6">
+                        <h5>File Status</h5>
+                        <ul>
+                            {% for path, status in file_status.items() %}
+                                <li><strong>{{ path }}:</strong> {{ status }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
             </div>
         </div>
         
@@ -128,6 +156,42 @@
             <hr>
             <p>Or use the demo login:</p>
             <a href="/demo-login" class="btn btn-secondary">Login as Demo User</a>
+        </div>
+        
+        <!-- Troubleshooting Actions -->
+        <div class="debug-section">
+            <h2 class="debug-title">Troubleshooting Actions</h2>
+            
+            <div class="card mb-3">
+                <div class="card-header bg-warning text-white">
+                    <h5 class="mb-0">Missing Google Client Secret</h5>
+                </div>
+                <div class="card-body">
+                    <p>If Google Client Secret is not set, follow these steps:</p>
+                    <ol>
+                        <li>Go to Railway dashboard</li>
+                        <li>Select your project</li>
+                        <li>Go to "Variables" tab</li>
+                        <li>Add a new variable: <code>GOOGLE_CLIENT_SECRET</code> with value <code>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</code></li>
+                        <li>Wait for redeployment to complete</li>
+                    </ol>
+                </div>
+            </div>
+            
+            <div class="card mb-3">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">Browser Issues</h5>
+                </div>
+                <div class="card-body">
+                    <p>If you're still seeing issues with Google login:</p>
+                    <ul>
+                        <li>Clear your browser cookies and cache</li>
+                        <li>Try using incognito/private browsing mode</li>
+                        <li>Ensure third-party cookies are allowed</li>
+                        <li>Try a different browser</li>
+                    </ul>
+                </div>
+            </div>
         </div>
         
         <div class="mt-4 mb-5">
