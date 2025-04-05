@@ -5,6 +5,10 @@ from datetime import datetime
 import json
 import random
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Try importing backend modules with proper error handling
 try:
     # Import backend modules
@@ -17,7 +21,6 @@ try:
         
         # Test MongoDB connection
         db.command('ping')
-        logger = logging.getLogger(__name__)
         logger.info("MongoDB connection successful")
         using_fallback_db = False
     except Exception as e:
@@ -35,13 +38,13 @@ except Exception as e:
     logging.error(f"Error importing modules: {str(e)}")
     raise
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'andikar-ai-development-key')
+
+# Add environment variable info to session for debugging
+app.config['GOOGLE_CLIENT_ID'] = os.environ.get("GOOGLE_CLIENT_ID", "934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com")
+app.config['GOOGLE_CLIENT_SECRET_SET'] = bool(os.environ.get("GOOGLE_CLIENT_SECRET"))
 
 # Initialize database
 init_db()
@@ -70,12 +73,19 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login - redirect to Google OAuth."""
+    # Add OAuth config info to session for debugging
+    session['google_client_id'] = app.config['GOOGLE_CLIENT_ID']
+    session['google_client_secret'] = app.config['GOOGLE_CLIENT_SECRET_SET']
+    
     # Generate Google OAuth URL
     google_auth_url = get_google_auth_url(url_for('callback', _external=True))
     
     if not google_auth_url:
         flash('Error configuring Google login. Please try again later.', 'danger')
+        logger.error("Failed to generate Google auth URL")
         return redirect(url_for('index'))
+    
+    logger.info(f"Generated Google auth URL: {google_auth_url}")
     
     # Redirect to Google's OAuth page
     return render_template('login.html', google_auth_url=google_auth_url)
@@ -85,36 +95,53 @@ def callback():
     """Handle the OAuth callback from Google."""
     # Get authorization code from request
     code = request.args.get('code')
+    error = request.args.get('error')
+    
+    logger.info(f"Callback received - code exists: {bool(code)}, error: {error}")
+    
+    if error:
+        flash(f'Authentication error: {error}. Please try again.', 'danger')
+        logger.error(f"OAuth error returned: {error}")
+        return redirect(url_for('login'))
     
     if not code:
         flash('Authentication failed. Please try again.', 'danger')
+        logger.error("No authorization code in callback")
         return redirect(url_for('login'))
     
     # Exchange code for tokens
+    logger.info(f"Exchanging code for tokens...")
     tokens = get_google_tokens(code, url_for('callback', _external=True))
     
     if not tokens:
         flash('Failed to authenticate with Google. Please try again.', 'danger')
+        logger.error("Failed to get tokens from Google OAuth")
         return redirect(url_for('login'))
     
     # Get user info from Google
+    logger.info(f"Getting user info from Google...")
     user_info = get_google_user_info(tokens)
     
     if not user_info:
         flash('Failed to retrieve your information from Google. Please ensure your email is verified.', 'danger')
+        logger.error("Failed to get user info from Google")
         return redirect(url_for('login'))
     
     # Get or create user in our database
+    logger.info(f"Getting or creating user in database...")
     user = get_or_create_user(db, user_info)
     
     if not user:
         flash('Failed to create or find your user account. Please try again.', 'danger')
+        logger.error("Failed to get or create user in database")
         return redirect(url_for('login'))
     
     # Set session variables
     session['user_id'] = user['username']
     session['user_email'] = user['email']
     session['user_picture'] = user.get('profile_picture', '')
+    
+    logger.info(f"User logged in successfully: {user['username']}")
     
     # Success message
     flash(f'Welcome, {user["username"]}!', 'success')
@@ -361,7 +388,8 @@ def health_check():
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "db_connection": "fallback" if using_fallback_db else "mongodb",
-        "api_status": get_api_status().get('status', 'unknown')
+        "api_status": get_api_status().get('status', 'unknown'),
+        "oauth_configured": bool(os.environ.get("GOOGLE_CLIENT_SECRET"))
     }
     return jsonify(status)
 
