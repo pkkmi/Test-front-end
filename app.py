@@ -8,6 +8,10 @@ import random
 # Import backend modules
 from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
 from backend.db import init_db, add_user, verify_user, get_user, update_user_usage
+from backend.oauth import get_google_auth_url, get_google_tokens, get_google_user_info, get_or_create_user
+
+# MongoDB client
+from backend.db import client, db
 
 # Import support bot module
 from support_bot import register_support_bot
@@ -41,61 +45,74 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """Handle user registration."""
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        email = request.form.get('email', '')
-        
-        # Basic validation
-        if not username or not password:
-            flash('Username and password are required', 'danger')
-            return render_template('register.html')
-        
-        # Add user to database
-        success, message = add_user(username, password, email)
-        
-        if success:
-            flash('Registration successful! Please log in.', 'success')
-            return redirect(url_for('login'))
-        else:
-            flash(f'Registration failed: {message}', 'danger')
-            return render_template('register.html')
-    
-    # GET request - display registration form
-    return render_template('register.html')
+    # Redirect to Google OAuth login
+    return redirect(url_for('login'))
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login')
 def login():
-    """Handle user login."""
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        # Basic validation
-        if not username or not password:
-            flash('Username and password are required', 'danger')
-            return render_template('login.html')
-        
-        # Special case for demo account
-        if username == 'demo' and password == 'demo':
-            session['user_id'] = 'demo'
-            flash('Logged in as demo user', 'success')
-            return redirect(url_for('humanize'))
-        
-        # Verify user credentials
-        success, result = verify_user(username, password)
-        
-        if success:
-            # Store user info in session
-            session['user_id'] = username
-            flash('Login successful!', 'success')
-            return redirect(url_for('humanize'))
-        else:
-            flash(f'Login failed: {result}', 'danger')
-            return render_template('login.html')
+    """Handle user login - redirect to Google OAuth."""
+    # Generate Google OAuth URL
+    google_auth_url = get_google_auth_url(url_for('callback', _external=True))
     
-    # GET request - display login form
-    return render_template('login.html')
+    if not google_auth_url:
+        flash('Error configuring Google login. Please try again later.', 'danger')
+        return redirect(url_for('index'))
+    
+    # Redirect to Google's OAuth page
+    return render_template('login.html', google_auth_url=google_auth_url)
+
+@app.route('/callback')
+def callback():
+    """Handle the OAuth callback from Google."""
+    # Get authorization code from request
+    code = request.args.get('code')
+    
+    if not code:
+        flash('Authentication failed. Please try again.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Exchange code for tokens
+    tokens = get_google_tokens(code, url_for('callback', _external=True))
+    
+    if not tokens:
+        flash('Failed to authenticate with Google. Please try again.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Get user info from Google
+    user_info = get_google_user_info(tokens)
+    
+    if not user_info:
+        flash('Failed to retrieve your information from Google. Please ensure your email is verified.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Get or create user in our database
+    user = get_or_create_user(db, user_info)
+    
+    if not user:
+        flash('Failed to create or find your user account. Please try again.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Set session variables
+    session['user_id'] = user['username']
+    session['user_email'] = user['email']
+    session['user_picture'] = user.get('profile_picture', '')
+    
+    # Success message
+    flash(f'Welcome, {user["username"]}!', 'success')
+    
+    # Redirect to humanize page
+    return redirect(url_for('humanize'))
+
+@app.route('/demo-login', methods=['POST'])
+def demo_login():
+    """Handle demo account login."""
+    # Set session for demo user
+    session['user_id'] = 'demo'
+    session['user_email'] = 'demo@example.com'
+    session['user_picture'] = ''
+    
+    flash('Logged in as demo user', 'success')
+    return redirect(url_for('humanize'))
 
 @app.route('/logout')
 def logout():
