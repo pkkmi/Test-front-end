@@ -5,10 +5,11 @@ python-dotenv==0.19.1
 gunicorn==20.1.0
 
 # Updated dependencies for OpenSSL compatibility
-pymongo==4.1.1
+pymongo[srv]==4.1.1
 pyOpenSSL==23.2.0
 cryptography==41.0.3
 certifi>=2023.7.22
+dnspython>=2.1.0
 
 # Google OAuth dependencies
 oauthlib==3.1.1
