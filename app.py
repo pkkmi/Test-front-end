@@ -67,7 +67,7 @@ def register():
     # Redirect to Google OAuth login
     return redirect(url_for('login'))
 
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login - redirect to Google OAuth."""
     # Generate Google OAuth URL
@@ -80,7 +80,7 @@ def login():
     # Redirect to Google's OAuth page
     return render_template('login.html', google_auth_url=google_auth_url)
 
-@app.route('/callback')
+@app.route('/callback', methods=['GET', 'POST'])
 def callback():
     """Handle the OAuth callback from Google."""
     # Get authorization code from request
@@ -122,7 +122,7 @@ def callback():
     # Redirect to humanize page
     return redirect(url_for('humanize'))
 
-@app.route('/demo-login', methods=['POST'])
+@app.route('/demo-login', methods=['GET', 'POST'])
 def demo_login():
     """Handle demo account login."""
     # Set session for demo user
@@ -133,7 +133,7 @@ def demo_login():
     flash('Logged in as demo user', 'success')
     return redirect(url_for('humanize'))
 
-@app.route('/logout')
+@app.route('/logout', methods=['GET', 'POST'])
 def logout():
     """Handle user logout."""
     # Clear session data
@@ -141,7 +141,7 @@ def logout():
     flash('You have been logged out', 'info')
     return redirect(url_for('index'))
 
-@app.route('/dashboard')
+@app.route('/dashboard', methods=['GET'])
 def dashboard():
     """Render the user dashboard."""
     # Check if user is logged in
@@ -158,7 +158,7 @@ def dashboard():
                           user=user, 
                           api_status=get_api_status())
 
-@app.route('/account')
+@app.route('/account', methods=['GET'])
 def account():
     """Render the user account page."""
     # Check if user is logged in
@@ -266,12 +266,17 @@ def api_word_count():
         'word_count': word_count
     })
 
-@app.route('/api/detect-ai', methods=['POST'])
+@app.route('/api/detect-ai', methods=['GET', 'POST'])
 def api_detect_ai():
     """API endpoint to detect AI-generated content."""
-    # Get the text from the request
-    data = request.json
-    text = data.get('text', '')
+    # Handle both GET and POST requests
+    if request.method == 'POST':
+        # For POST requests, get text from request body
+        data = request.json or {}
+        text = data.get('text', '')
+    else:
+        # For GET requests, get text from query parameter
+        text = request.args.get('text', '')
     
     if not text:
         return jsonify({
@@ -303,7 +308,7 @@ def api_detect_ai():
     
     # Add a small delay to simulate processing
     import time
-    time.sleep(1.5)
+    time.sleep(0.5)  # Reduced delay to improve responsiveness
     
     # Return the AI detection score
     return jsonify({
@@ -311,7 +316,7 @@ def api_detect_ai():
         'analyzed_at': datetime.now().isoformat()
     })
 
-@app.route('/debug')
+@app.route('/debug', methods=['GET'])
 def debug():
     """Debug endpoint to show application state."""
     # Only available in development mode
@@ -349,7 +354,7 @@ def debug():
     else:
         return "Debug endpoint not available in production", 404
 
-@app.route('/health')
+@app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint for monitoring."""
     status = {
@@ -359,6 +364,23 @@ def health_check():
         "api_status": get_api_status().get('status', 'unknown')
     }
     return jsonify(status)
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    """Handle Method Not Allowed errors gracefully."""
+    app.logger.error(f"Method Not Allowed error: {request.method} {request.path}")
+    
+    # Check if the request is for an API endpoint
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'Method not allowed',
+            'message': f'The method {request.method} is not allowed for this endpoint',
+            'allowed_methods': e.valid_methods
+        }), 405
+    
+    # For regular page requests, redirect to home with a message
+    flash(f'Invalid request method: {request.method}', 'danger')
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
     # Run the Flask app
