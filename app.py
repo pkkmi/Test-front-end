@@ -1,3 +1,9 @@
+# Deployment helper - this will verify that code is being deployed properly
+try:
+    import deploy_helper
+except Exception as e:
+    print(f"Failed to import deploy_helper: {e}")
+
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 import os
 import logging
@@ -13,10 +19,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Log startup message
+logger.warning("APPLICATION STARTING - APP.PY UPDATED VERSION")
+
 # Try importing backend modules with proper error handling
 try:
-    # Import backend modules
+    # Import API service first
     from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
+    logger.info("Successfully imported API service")
     
     # Try to import the MongoDB-based database module
     try:
@@ -29,7 +39,8 @@ try:
         using_fallback_db = False
     except Exception as e:
         # If MongoDB connection fails, use the fallback implementation
-        logging.warning(f"MongoDB connection failed: {str(e)}. Switching to fallback database.")
+        logger.warning(f"MongoDB connection failed: {str(e)}. Switching to fallback database.")
+        logger.warning(traceback.format_exc())
         from backend.db_fallback import init_db, add_user, verify_user, get_user, update_user_usage
         from backend.db_fallback import client, db
         using_fallback_db = True
@@ -39,8 +50,8 @@ try:
     # Import support bot module
     from support_bot import register_support_bot
 except Exception as e:
-    logging.error(f"Error importing modules: {str(e)}")
-    logging.error(traceback.format_exc())
+    logger.error(f"Error importing modules: {str(e)}")
+    logger.error(traceback.format_exc())
     raise
 
 # Initialize Flask app
@@ -396,8 +407,20 @@ def debug():
         "RAILWAY_STATIC_URL": os.environ.get("RAILWAY_STATIC_URL", "Not set"),
         "PORT": os.environ.get("PORT", "Not set"),
         "NIXPACKS_PYTHON_VERSION": os.environ.get("NIXPACKS_PYTHON_VERSION", "Not set"),
-        "GOOGLE_CLIENT_SECRET_SET": bool(os.environ.get("GOOGLE_CLIENT_SECRET"))
+        "GOOGLE_CLIENT_SECRET_SET": bool(os.environ.get("GOOGLE_CLIENT_SECRET")),
+        "DEPLOYMENT_ID": os.environ.get("RAILWAY_DEPLOYMENT_ID", "Not set")[:8] + "...",
+        "GIT_COMMIT": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "Not set")[:8] + "..."
     }
+    
+    # File status
+    file_status = {}
+    for path in ["/app/app.py", "/app/backend/db_fallback.py", "/app/backend/oauth.py"]:
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            mtime = datetime.fromtimestamp(os.path.getmtime(path))
+            file_status[path] = f"Exists: {size} bytes, modified: {mtime}"
+        else:
+            file_status[path] = "DOES NOT EXIST"
     
     # Return debug information
     return render_template('debug.html',
@@ -405,7 +428,8 @@ def debug():
                           session=session_data,
                           api_status=api_status,
                           db_status=db_status,
-                          env_info=env_info)
+                          env_info=env_info,
+                          file_status=file_status)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -416,7 +440,9 @@ def health_check():
         "db_connection": "fallback" if using_fallback_db else "mongodb",
         "api_status": get_api_status().get('status', 'unknown'),
         "oauth_configured": bool(os.environ.get("GOOGLE_CLIENT_SECRET")),
-        "environment": os.environ.get("RAILWAY_ENVIRONMENT", "unknown")
+        "environment": os.environ.get("RAILWAY_ENVIRONMENT", "unknown"),
+        "deployment_id": os.environ.get("RAILWAY_DEPLOYMENT_ID", "unknown")[:8] + "...",
+        "git_commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:8] + "..."
     }
     return jsonify(status)
 
