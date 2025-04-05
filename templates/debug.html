@@ -14,6 +14,51 @@
             This page shows debug information about the application state.
         </div>
         
+        <!-- System Status -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h3>System Status</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Database Status -->
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Database Status</div>
+                            <div class="card-body">
+                                {% if db_status %}
+                                    <span class="badge badge-{{ 'warning' if 'fallback' in db_status else 'success' }} p-2">
+                                        {{ db_status }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge badge-secondary p-2">Unknown</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- API Status -->
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">API Connection</div>
+                            <div class="card-body">
+                                {% if api_status %}
+                                    <span class="badge badge-{{ 'success' if api_status.status == 'online' else 'danger' }} p-2">
+                                        {{ api_status.status }}
+                                    </span>
+                                    {% if api_status.message %}
+                                        <p class="mt-2 mb-0 small">{{ api_status.message }}</p>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge badge-secondary p-2">Unknown</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- User Information -->
         <div class="card mb-4">
             <div class="card-header bg-info text-white">
@@ -76,10 +121,10 @@
             </div>
         </div>
         
-        <!-- API Status -->
+        <!-- API Status Details -->
         <div class="card mb-4">
             <div class="card-header bg-info text-white">
-                <h3>API Status</h3>
+                <h3>API Status Details</h3>
             </div>
             <div class="card-body">
                 {% if api_status %}
@@ -132,6 +177,7 @@
         
         <div class="mt-4">
             <a href="{{ url_for('index') }}" class="btn btn-primary">Go to Home</a>
+            <a href="{{ url_for('health_check') }}" class="btn btn-secondary ml-2">Health Check API</a>
         </div>
     </div>
     
