@@ -23,7 +23,13 @@ This application uses Google OAuth for authentication. Follow these steps to set
 
 ## Environment Variables
 
-Create a `.env` file in the root directory and add the following environment variables:
+Create a `.env` file in the root directory by copying the `.env.example` file and adding your secrets:
+
+```
+cp .env.example .env
+```
+
+Then edit the `.env` file with your actual values:
 
 ```
 FLASK_APP=app.py
@@ -31,7 +37,7 @@ FLASK_ENV=development
 SECRET_KEY=your-secret-key
 MONGODB_URI=your-mongodb-uri
 DB_NAME=andikar_ai
-GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_ID=934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
 
@@ -43,7 +49,37 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
    - Windows: `venv\Scripts\activate`
    - Linux/Mac: `source venv/bin/activate`
 4. Install dependencies: `pip install -r requirements.txt`
-5. Run the application: `flask run`
+5. Create your `.env` file as described above
+6. Run the application: `flask run`
+
+## Deployment
+
+### Heroku Deployment
+
+1. Install the Heroku CLI: [Instructions](https://devcenter.heroku.com/articles/heroku-cli)
+2. Login to Heroku: `heroku login`
+3. Create a new Heroku app: `heroku create andikar-ai`
+4. Add a Procfile:
+   ```
+   web: gunicorn app:app
+   ```
+5. Add environment variables:
+   ```
+   heroku config:set FLASK_APP=app.py
+   heroku config:set SECRET_KEY=your-secret-key
+   heroku config:set MONGODB_URI=your-mongodb-uri
+   heroku config:set DB_NAME=andikar_ai
+   heroku config:set GOOGLE_CLIENT_ID=934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com
+   heroku config:set GOOGLE_CLIENT_SECRET=your-google-client-secret
+   ```
+6. Deploy to Heroku: `git push heroku main`
+
+### AWS Deployment
+
+1. Create an EC2 instance or Elastic Beanstalk environment
+2. Configure environment variables in the AWS console
+3. Use a process manager like Supervisor, systemd, or PM2 to run the Flask app
+4. Set up a reverse proxy with Nginx or Apache
 
 ## Rollback Instructions
 
