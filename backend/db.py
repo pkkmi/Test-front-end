@@ -2,6 +2,7 @@ import os
 from pymongo import MongoClient
 from werkzeug.security import generate_password_hash, check_password_hash
 import logging
+import ssl
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -11,9 +12,17 @@ logger = logging.getLogger(__name__)
 DB_URI = os.environ.get('MONGODB_URI', 'mongodb+srv://edgarmaina003:Andikar_25@oldtrafford.id96k.mongodb.net/?retryWrites=true&w=majority&appName=OldTrafford')
 DB_NAME = os.environ.get('DB_NAME', 'andikar_ai')
 
-# Initialize MongoDB client
+# Initialize MongoDB client with additional connection parameters for better compatibility
 try:
-    client = MongoClient(DB_URI)
+    # Configure with ssl options to handle OpenSSL compatibility issues
+    client = MongoClient(
+        DB_URI,
+        ssl=True,
+        ssl_cert_reqs=ssl.CERT_NONE,  # Less strict certificate validation
+        connect=False,  # Defer connection until needed
+        serverSelectionTimeoutMS=5000,  # Timeout if connection fails
+        tlsAllowInvalidCertificates=True  # Allow less secure connections
+    )
     db = client[DB_NAME]
     users_collection = db['users']
     transactions_collection = db['transactions']
