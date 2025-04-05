@@ -12,11 +12,11 @@
   </div>
 
   {% if not session.user_id %}
-  <!-- Login Notice for Guests -->
+  <!-- Login Notice for Guests - Enhanced to highlight humanize feature access -->
   <div class="row mb-4">
     <div class="col-md-10 offset-md-1">
       <div class="alert alert-info">
-        <i class="fas fa-info-circle mr-2"></i> Please <a href="{{ url_for('login') }}" class="alert-link">login</a> or <a href="{{ url_for('register') }}" class="alert-link">register</a> to access our text humanization tools.
+        <i class="fas fa-info-circle mr-2"></i> You need to <a href="{{ url_for('login') }}" class="alert-link">login</a> to access our text humanization tools. AI detection is available to all users.
       </div>
     </div>
   </div>
@@ -47,7 +47,7 @@
             <div class="col-md-6">
               <div class="form-group">
                 <label for="result_text"><strong>Results</strong></label>
-                <textarea class="form-control" id="result_text" name="result_text" rows="12" placeholder="Results will appear here..." readonly></textarea>
+                <textarea class="form-control" id="result_text" name="result_text" rows="12" placeholder="Results will appear here...{{ ' Login to access humanization features.' if not session.user_id else '' }}" readonly></textarea>
                 <div class="text-right mt-2" id="copy-btn-container" style="display: none;">
                   <button type="button" class="btn btn-sm btn-outline-secondary" 
                           onclick="copyToClipboard()">
