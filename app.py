@@ -5,16 +5,35 @@ from datetime import datetime
 import json
 import random
 
-# Import backend modules
-from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
-from backend.db import init_db, add_user, verify_user, get_user, update_user_usage
-from backend.oauth import get_google_auth_url, get_google_tokens, get_google_user_info, get_or_create_user
-
-# MongoDB client
-from backend.db import client, db
-
-# Import support bot module
-from support_bot import register_support_bot
+# Try importing backend modules with proper error handling
+try:
+    # Import backend modules
+    from backend.api_service import humanize_text, get_api_status, HumanizerAPIError, count_words
+    
+    # Try to import the MongoDB-based database module
+    try:
+        from backend.db import init_db, add_user, verify_user, get_user, update_user_usage
+        from backend.db import client, db
+        
+        # Test MongoDB connection
+        db.command('ping')
+        logger = logging.getLogger(__name__)
+        logger.info("MongoDB connection successful")
+        using_fallback_db = False
+    except Exception as e:
+        # If MongoDB connection fails, use the fallback implementation
+        logging.warning(f"MongoDB connection failed: {str(e)}. Switching to fallback database.")
+        from backend.db_fallback import init_db, add_user, verify_user, get_user, update_user_usage
+        from backend.db_fallback import client, db
+        using_fallback_db = True
+    
+    from backend.oauth import get_google_auth_url, get_google_tokens, get_google_user_info, get_or_create_user
+    
+    # Import support bot module
+    from support_bot import register_support_bot
+except Exception as e:
+    logging.error(f"Error importing modules: {str(e)}")
+    raise
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -318,13 +337,28 @@ def debug():
         # Session data
         session_data = dict(session)
         
+        # Database status
+        db_status = "Using fallback in-memory database" if using_fallback_db else "Using MongoDB"
+        
         # Return debug information
         return render_template('debug.html',
                               user_info=user_info,
                               session=session_data,
-                              api_status=api_status)
+                              api_status=api_status,
+                              db_status=db_status)
     else:
         return "Debug endpoint not available in production", 404
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring."""
+    status = {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "db_connection": "fallback" if using_fallback_db else "mongodb",
+        "api_status": get_api_status().get('status', 'unknown')
+    }
+    return jsonify(status)
 
 if __name__ == '__main__':
     # Run the Flask app
