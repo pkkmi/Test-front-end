@@ -1,1 +1,188 @@
-\"\"\"\nGoogle OAuth Configuration and Helper Functions\n\"\"\"\n\nimport os\nimport json\nimport logging\nfrom flask import url_for, session, redirect, request\nfrom datetime import datetime\nfrom oauthlib.oauth2 import WebApplicationClient\nimport requests\n\n# Configuration for Google OAuth\nGOOGLE_CLIENT_ID = os.environ.get(\"GOOGLE_CLIENT_ID\", \"934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com\")\nGOOGLE_CLIENT_SECRET = os.environ.get(\"GOOGLE_CLIENT_SECRET\", \"\")\nGOOGLE_DISCOVERY_URL = \"https://accounts.google.com/.well-known/openid-configuration\"\n\n# Explicitly set the callback URL for Railway deployment\nRAILWAY_PRODUCTION_URL = \"https://web-production-c1f4.up.railway.app/callback\"\n\n# Configure logging\nlogging.basicConfig(level=logging.INFO)\nlogger = logging.getLogger(__name__)\n\n# OAuth client setup\nclient = WebApplicationClient(GOOGLE_CLIENT_ID)\n\ndef get_google_provider_cfg():\n    \"\"\"Get Google's OAuth 2.0 endpoint configurations\"\"\"\n    try:\n        return requests.get(GOOGLE_DISCOVERY_URL).json()\n    except Exception as e:\n        logger.error(f\"Error fetching Google provider config: {str(e)}\")\n        return None\n\ndef get_google_auth_url(redirect_uri=None):\n    \"\"\"Generate a Google authentication URL\"\"\"\n    try:\n        # Find out what URL to hit for Google login\n        google_provider_cfg = get_google_provider_cfg()\n        if not google_provider_cfg:\n            return None\n\n        # Use library to construct the request for Google login\n        # and provide the redirect location\n        authorization_endpoint = google_provider_cfg[\"authorization_endpoint\"]\n        \n        # Always use the Railway production URL when deployed\n        # This ensures it matches exactly what's in Google Cloud Console\n        redirect_uri = RAILWAY_PRODUCTION_URL\n        \n        # Log the redirect URI being used (helpful for debugging)\n        logger.info(f\"OAuth redirect URI: {redirect_uri}\")\n            \n        # Generate URL for request to Google's OAuth 2.0 server\n        return client.prepare_request_uri(\n            authorization_endpoint,\n            redirect_uri=redirect_uri,\n            scope=[\"openid\", \"email\", \"profile\"],\n        )\n    except Exception as e:\n        logger.error(f\"Error generating Google auth URL: {str(e)}\")\n        return None\n\ndef get_google_tokens(code, redirect_uri=None):\n    \"\"\"Exchange authorization code for tokens\"\"\"\n    try:\n        # Find out what URL to hit to get tokens from the provider\n        google_provider_cfg = get_google_provider_cfg()\n        if not google_provider_cfg:\n            logger.error(\"Failed to get Google provider config\")\n            return None\n\n        token_endpoint = google_provider_cfg[\"token_endpoint\"]\n        \n        # Always use the Railway production URL for tokens\n        redirect_uri = RAILWAY_PRODUCTION_URL\n                \n        logger.info(f\"Token exchange using redirect URI: {redirect_uri}\")\n        logger.info(f\"Request URL: {request.url}\")\n        \n        # Check if client secret is set\n        if not GOOGLE_CLIENT_SECRET:\n            logger.error(\"GOOGLE_CLIENT_SECRET environment variable is not set\")\n            return None\n            \n        # Prepare and send request to get tokens\n        token_url, headers, body = client.prepare_token_request(\n            token_endpoint,\n            authorization_response=request.url,\n            redirect_url=redirect_uri,\n            code=code,\n        )\n        \n        logger.info(f\"Sending token request to: {token_url}\")\n        \n        token_response = requests.post(\n            token_url,\n            headers=headers,\n            data=body,\n            auth=(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET),\n        )\n\n        # Check if token request was successful\n        if token_response.status_code != 200:\n            logger.error(f\"Token request failed with status {token_response.status_code}: {token_response.text}\")\n            return None\n\n        # Parse the tokens\n        return client.parse_request_body_response(json.dumps(token_response.json()))\n    except Exception as e:\n        logger.error(f\"Error getting Google tokens: {str(e)}\")\n        return None\n\ndef get_google_user_info(tokens):\n    \"\"\"Get user info from Google API\"\"\"\n    try:\n        # Find out what URL to hit to get the user's profile information\n        google_provider_cfg = get_google_provider_cfg()\n        if not google_provider_cfg:\n            return None\n            \n        userinfo_endpoint = google_provider_cfg[\"userinfo_endpoint\"]\n        \n        # Make a request to the userinfo endpoint\n        uri, headers, body = client.add_token(userinfo_endpoint)\n        userinfo_response = requests.get(uri, headers=headers, data=body)\n        \n        # Parse the user info\n        if userinfo_response.json().get(\"email_verified\"):\n            # The user's email has been verified by Google\n            # Extract user information\n            return {\n                \"sub\": userinfo_response.json()[\"sub\"],  # Unique Google user ID\n                \"email\": userinfo_response.json()[\"email\"],\n                \"name\": userinfo_response.json().get(\"name\", \"\"),\n                \"picture\": userinfo_response.json().get(\"picture\", \"\")\n            }\n        else:\n            # The user's email hasn't been verified by Google\n            return None\n    except Exception as e:\n        logger.error(f\"Error getting Google user info: {str(e)}\")\n        return None\n\ndef get_or_create_user(db, user_info):\n    \"\"\"Get or create a user based on Google user info\"\"\"\n    try:\n        users_collection = db['users']\n        \n        # Check if user already exists\n        user = users_collection.find_one({\"google_id\": user_info[\"sub\"]})\n        \n        if user:\n            # User exists, return it\n            return user\n            \n        # Check if email already exists\n        email_user = users_collection.find_one({\"email\": user_info[\"email\"]})\n        if email_user:\n            # Link Google ID to existing user\n            result = users_collection.update_one(\n                {\"_id\": email_user[\"_id\"]},\n                {\"$set\": {\"google_id\": user_info[\"sub\"]}}\n            )\n            return users_collection.find_one({\"_id\": email_user[\"_id\"]})\n        \n        # Create new user\n        new_user = {\n            \"username\": user_info[\"email\"].split(\"@\")[0],  # Use part before @ as username\n            \"email\": user_info[\"email\"],\n            \"google_id\": user_info[\"sub\"],\n            \"name\": user_info[\"name\"],\n            \"profile_picture\": user_info[\"picture\"],\n            \"created_at\": datetime.now(),\n            \"usage\": {\n                \"requests\": 0,\n                \"total_words\": 0,\n                \"monthly_words\": 0,\n                \"last_request\": None\n            }\n        }\n        \n        result = users_collection.insert_one(new_user)\n        return users_collection.find_one({\"_id\": result.inserted_id})\n    except Exception as e:\n        logger.error(f\"Error creating/getting user: {str(e)}\")\n        return None
+"""
+Google OAuth Configuration and Helper Functions
+"""
+
+import os
+import json
+import logging
+from flask import url_for, session, redirect, request
+from datetime import datetime
+from oauthlib.oauth2 import WebApplicationClient
+import requests
+
+# Configuration for Google OAuth
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
+
+# Explicitly set the callback URL for Railway deployment
+RAILWAY_PRODUCTION_URL = "https://web-production-c1f4.up.railway.app/callback"
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# OAuth client setup
+client = WebApplicationClient(GOOGLE_CLIENT_ID)
+
+def get_google_provider_cfg():
+    """Get Google's OAuth 2.0 endpoint configurations"""
+    try:
+        return requests.get(GOOGLE_DISCOVERY_URL).json()
+    except Exception as e:
+        logger.error(f"Error fetching Google provider config: {str(e)}")
+        return None
+
+def get_google_auth_url(redirect_uri=None):
+    """Generate a Google authentication URL"""
+    try:
+        # Find out what URL to hit for Google login
+        google_provider_cfg = get_google_provider_cfg()
+        if not google_provider_cfg:
+            return None
+
+        # Use library to construct the request for Google login
+        # and provide the redirect location
+        authorization_endpoint = google_provider_cfg["authorization_endpoint"]
+        
+        # Always use the Railway production URL when deployed
+        # This ensures it matches exactly what's in Google Cloud Console
+        redirect_uri = RAILWAY_PRODUCTION_URL
+        
+        # Log the redirect URI being used (helpful for debugging)
+        logger.info(f"OAuth redirect URI: {redirect_uri}")
+            
+        # Generate URL for request to Google's OAuth 2.0 server
+        return client.prepare_request_uri(
+            authorization_endpoint,
+            redirect_uri=redirect_uri,
+            scope=["openid", "email", "profile"],
+        )
+    except Exception as e:
+        logger.error(f"Error generating Google auth URL: {str(e)}")
+        return None
+
+def get_google_tokens(code, redirect_uri=None):
+    """Exchange authorization code for tokens"""
+    try:
+        # Find out what URL to hit to get tokens from the provider
+        google_provider_cfg = get_google_provider_cfg()
+        if not google_provider_cfg:
+            logger.error("Failed to get Google provider config")
+            return None
+
+        token_endpoint = google_provider_cfg["token_endpoint"]
+        
+        # Always use the Railway production URL for tokens
+        redirect_uri = RAILWAY_PRODUCTION_URL
+                
+        logger.info(f"Token exchange using redirect URI: {redirect_uri}")
+        logger.info(f"Request URL: {request.url}")
+        
+        # Check if client secret is set
+        if not GOOGLE_CLIENT_SECRET:
+            logger.error("GOOGLE_CLIENT_SECRET environment variable is not set")
+            return None
+            
+        # Prepare and send request to get tokens
+        token_url, headers, body = client.prepare_token_request(
+            token_endpoint,
+            authorization_response=request.url,
+            redirect_url=redirect_uri,
+            code=code,
+        )
+        
+        logger.info(f"Sending token request to: {token_url}")
+        
+        token_response = requests.post(
+            token_url,
+            headers=headers,
+            data=body,
+            auth=(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET),
+        )
+
+        # Check if token request was successful
+        if token_response.status_code != 200:
+            logger.error(f"Token request failed with status {token_response.status_code}: {token_response.text}")
+            return None
+
+        # Parse the tokens
+        return client.parse_request_body_response(json.dumps(token_response.json()))
+    except Exception as e:
+        logger.error(f"Error getting Google tokens: {str(e)}")
+        return None
+
+def get_google_user_info(tokens):
+    """Get user info from Google API"""
+    try:
+        # Find out what URL to hit to get the user's profile information
+        google_provider_cfg = get_google_provider_cfg()
+        if not google_provider_cfg:
+            return None
+            
+        userinfo_endpoint = google_provider_cfg["userinfo_endpoint"]
+        
+        # Make a request to the userinfo endpoint
+        uri, headers, body = client.add_token(userinfo_endpoint)
+        userinfo_response = requests.get(uri, headers=headers, data=body)
+        
+        # Parse the user info
+        if userinfo_response.json().get("email_verified"):
+            # The user's email has been verified by Google
+            # Extract user information
+            return {
+                "sub": userinfo_response.json()["sub"],  # Unique Google user ID
+                "email": userinfo_response.json()["email"],
+                "name": userinfo_response.json().get("name", ""),
+                "picture": userinfo_response.json().get("picture", "")
+            }
+        else:
+            # The user's email hasn't been verified by Google
+            return None
+    except Exception as e:
+        logger.error(f"Error getting Google user info: {str(e)}")
+        return None
+
+def get_or_create_user(db, user_info):
+    """Get or create a user based on Google user info"""
+    try:
+        users_collection = db['users']
+        
+        # Check if user already exists
+        user = users_collection.find_one({"google_id": user_info["sub"]})
+        
+        if user:
+            # User exists, return it
+            return user
+            
+        # Check if email already exists
+        email_user = users_collection.find_one({"email": user_info["email"]})
+        if email_user:
+            # Link Google ID to existing user
+            result = users_collection.update_one(
+                {"_id": email_user["_id"]},
+                {"$set": {"google_id": user_info["sub"]}}
+            )
+            return users_collection.find_one({"_id": email_user["_id"]})
+        
+        # Create new user
+        new_user = {
+            "username": user_info["email"].split("@")[0],  # Use part before @ as username
+            "email": user_info["email"],
+            "google_id": user_info["sub"],
+            "name": user_info["name"],
+            "profile_picture": user_info["picture"],
+            "created_at": datetime.now(),
+            "usage": {
+                "requests": 0,
+                "total_words": 0,
+                "monthly_words": 0,
+                "last_request": None
+            }
+        }
+        
+        result = users_collection.insert_one(new_user)
+        return users_collection.find_one({"_id": result.inserted_id})
+    except Exception as e:
+        logger.error(f"Error creating/getting user: {str(e)}")
+        return None
