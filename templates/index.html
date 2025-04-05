@@ -198,12 +198,12 @@
     // Simulate progress for visual feedback
     let progress = 0;
     const progressInterval = setInterval(function() {
-      progress += 1;
+      progress += 2; // Faster progress updates
       if (progress > 95) {
         clearInterval(progressInterval);
       }
       processingProgress.style.width = progress + '%';
-    }, 600);
+    }, 300); // Reduced time between updates
     
     // Make the appropriate API call
     if (action === 'humanize') {
@@ -221,15 +221,37 @@
       document.body.appendChild(form);
       form.submit();
     } else {
-      // For AI detection, use the API endpoint
+      // For AI detection, use the API endpoint with proper error handling
       fetch('/api/detect-ai', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify({ text: text })
       })
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          // Handle HTTP errors
+          if (response.status === 405) {
+            // Method Not Allowed - try GET as fallback
+            clearInterval(progressInterval);
+            processingMessage.textContent = 'Trying alternative method...';
+            
+            // Construct URL with query parameter
+            const params = new URLSearchParams();
+            params.append('text', text);
+            return fetch('/api/detect-ai?' + params.toString(), {
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json'
+              }
+            });
+          }
+          throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.json();
+      })
       .then(data => {
         // Clear progress interval
         clearInterval(progressInterval);
@@ -291,7 +313,7 @@
         processingIndicator.style.display = 'none';
         
         // Show error message
-        resultText.value = 'An error occurred while analyzing the text. Please try again.';
+        resultText.value = 'An error occurred while analyzing the text: ' + error.message + '\n\nPlease try again.';
         
         // Re-enable buttons
         document.getElementById('ai-detector-btn').disabled = false;
