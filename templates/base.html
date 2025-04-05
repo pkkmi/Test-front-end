@@ -14,6 +14,19 @@
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     
+    <style>
+        .user-avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .dropdown-toggle::after {
+            vertical-align: middle;
+        }
+    </style>
+    
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -40,21 +53,34 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('account') }}">My Account</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('support.support_page') }}">Support</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-toggle="dropdown">
+                            {% if session.user_picture %}
+                            <img src="{{ session.user_picture }}" alt="Profile" class="user-avatar">
+                            {% else %}
+                            <i class="fas fa-user-circle mr-1"></i>
+                            {% endif %}
+                            {{ session.user_id }}
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-right">
+                            <a class="dropdown-item" href="{{ url_for('account') }}">
+                                <i class="fas fa-user-cog mr-2"></i> My Account
+                            </a>
+                            <a class="dropdown-item" href="{{ url_for('support.support_page') }}">
+                                <i class="fas fa-question-circle mr-2"></i> Support
+                            </a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="{{ url_for('logout') }}">
+                                <i class="fas fa-sign-out-alt mr-2"></i> Logout
+                            </a>
+                        </div>
                     </li>
                     {% else %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('login') }}">Login</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('register') }}">Register</a>
+                        <a class="nav-link" href="{{ url_for('login') }}">Register</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('support.support_page') }}">Support</a>
@@ -98,7 +124,7 @@
                         <li><a href="{{ url_for('dashboard') }}" class="text-white">Dashboard</a></li>
                         {% else %}
                         <li><a href="{{ url_for('login') }}" class="text-white">Login</a></li>
-                        <li><a href="{{ url_for('register') }}" class="text-white">Register</a></li>
+                        <li><a href="{{ url_for('login') }}" class="text-white">Register</a></li>
                         {% endif %}
                         <li><a href="{{ url_for('support.support_page') }}" class="text-white">Support</a></li>
                     </ul>
