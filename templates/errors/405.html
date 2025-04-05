@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}Method Not Allowed - Andikar AI{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+  <div class="row">
+    <div class="col-md-8 offset-md-2">
+      <div class="card shadow-sm">
+        <div class="card-header bg-danger text-white">
+          <h2 class="mb-0">Method Not Allowed</h2>
+        </div>
+        <div class="card-body">
+          <div class="text-center mb-4">
+            <i class="fas fa-exclamation-triangle text-danger" style="font-size: 4rem;"></i>
+          </div>
+          
+          <p class="lead text-center">
+            The request method used is not allowed for this URL.
+          </p>
+          
+          <div class="alert alert-info">
+            <h5>Technical Information:</h5>
+            <p class="mb-0">
+              <strong>URL:</strong> {{ request.path }}<br>
+              <strong>Method:</strong> {{ request.method }}<br>
+              {% if allowed_methods %}
+              <strong>Allowed Methods:</strong> {{ allowed_methods|join(', ') }}
+              {% endif %}
+            </p>
+          </div>
+          
+          <p>
+            This error usually occurs when trying to access a URL with an HTTP method that is not supported.
+            For example, using a GET request where a POST is required, or vice versa.
+          </p>
+          
+          <div class="text-center mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">
+              <i class="fas fa-home mr-2"></i> Go to Home Page
+            </a>
+            <button class="btn btn-outline-secondary ml-2" onclick="window.history.back()">
+              <i class="fas fa-arrow-left mr-2"></i> Go Back
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
