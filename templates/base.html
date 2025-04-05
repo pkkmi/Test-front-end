@@ -35,10 +35,10 @@
                     
                     {% if session.user_id %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
+                        <a class="nav-link" href="{{ url_for('humanize') }}">Humanize Text</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('humanize') }}">Humanize Text</a>
+                        <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('account') }}">My Account</a>
@@ -94,8 +94,8 @@
                     <ul class="list-unstyled">
                         <li><a href="{{ url_for('index') }}" class="text-white">Home</a></li>
                         {% if session.user_id %}
-                        <li><a href="{{ url_for('dashboard') }}" class="text-white">Dashboard</a></li>
                         <li><a href="{{ url_for('humanize') }}" class="text-white">Humanize Text</a></li>
+                        <li><a href="{{ url_for('dashboard') }}" class="text-white">Dashboard</a></li>
                         {% else %}
                         <li><a href="{{ url_for('login') }}" class="text-white">Login</a></li>
                         <li><a href="{{ url_for('register') }}" class="text-white">Register</a></li>
