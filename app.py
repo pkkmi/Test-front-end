@@ -1,12 +1,16 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import random
+import traceback
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Try importing backend modules with proper error handling
@@ -36,15 +40,24 @@ try:
     from support_bot import register_support_bot
 except Exception as e:
     logging.error(f"Error importing modules: {str(e)}")
+    logging.error(traceback.format_exc())
     raise
 
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'andikar-ai-development-key')
+# Extend session lifetime
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+
+# Print all environment variables for debugging (redacted for security)
+env_vars = {k: (v[:5] + "..." + v[-5:] if len(v) > 15 else "***") for k, v in os.environ.items()}
+logger.info(f"Environment variables (redacted): {env_vars}")
 
 # Add environment variable info to session for debugging
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get("GOOGLE_CLIENT_ID", "934412857118-i13t5ma9afueo40tmohosprsjf4555f0.apps.googleusercontent.com")
 app.config['GOOGLE_CLIENT_SECRET_SET'] = bool(os.environ.get("GOOGLE_CLIENT_SECRET"))
+logger.info(f"Google Client ID: {app.config['GOOGLE_CLIENT_ID'][:5]}...{app.config['GOOGLE_CLIENT_ID'][-5:]}")
+logger.info(f"Google Client Secret is set: {app.config['GOOGLE_CLIENT_SECRET_SET']}")
 
 # Initialize database
 init_db()
@@ -76,6 +89,7 @@ def login():
     # Add OAuth config info to session for debugging
     session['google_client_id'] = app.config['GOOGLE_CLIENT_ID']
     session['google_client_secret'] = app.config['GOOGLE_CLIENT_SECRET_SET']
+    session.permanent = True  # Make session persistent
     
     # Generate Google OAuth URL
     google_auth_url = get_google_auth_url(url_for('callback', _external=True))
@@ -85,14 +99,18 @@ def login():
         logger.error("Failed to generate Google auth URL")
         return redirect(url_for('index'))
     
-    logger.info(f"Generated Google auth URL: {google_auth_url}")
+    logger.info(f"Generated Google auth URL: {google_auth_url[:50]}...")
     
     # Redirect to Google's OAuth page
     return render_template('login.html', google_auth_url=google_auth_url)
 
-@app.route('/callback', methods=['GET', 'POST'])
+@app.route('/callback')
 def callback():
     """Handle the OAuth callback from Google."""
+    # Log all request details for debugging
+    logger.info(f"Callback received - Full URL: {request.url}")
+    logger.info(f"Request args: {request.args}")
+    
     # Get authorization code from request
     code = request.args.get('code')
     error = request.args.get('error')
@@ -140,6 +158,7 @@ def callback():
     session['user_id'] = user['username']
     session['user_email'] = user['email']
     session['user_picture'] = user.get('profile_picture', '')
+    session.permanent = True  # Make session persistent
     
     logger.info(f"User logged in successfully: {user['username']}")
     
@@ -156,6 +175,7 @@ def demo_login():
     session['user_id'] = 'demo'
     session['user_email'] = 'demo@example.com'
     session['user_picture'] = ''
+    session.permanent = True  # Make session persistent
     
     flash('Logged in as demo user', 'success')
     return redirect(url_for('humanize'))
@@ -346,40 +366,46 @@ def api_detect_ai():
 @app.route('/debug', methods=['GET'])
 def debug():
     """Debug endpoint to show application state."""
-    # Only available in development mode
-    if os.environ.get('FLASK_ENV') != 'production':
-        # Get all registered users
-        users = []
-        
-        # Current user info
-        user_info = None
-        if 'user_id' in session:
-            user_id = session['user_id']
-            user = get_user(user_id)
-            if user:
-                user_info = {
-                    'username': user.get('username', user_id),
-                    'email': user.get('email', 'unknown'),
-                    'usage': user.get('usage', {})
-                }
-        
-        # API status
-        api_status = get_api_status()
-        
-        # Session data
-        session_data = dict(session)
-        
-        # Database status
-        db_status = "Using fallback in-memory database" if using_fallback_db else "Using MongoDB"
-        
-        # Return debug information
-        return render_template('debug.html',
-                              user_info=user_info,
-                              session=session_data,
-                              api_status=api_status,
-                              db_status=db_status)
-    else:
-        return "Debug endpoint not available in production", 404
+    # Allow access in all environments for troubleshooting during development
+    # Get all registered users
+    users = []
+    
+    # Current user info
+    user_info = None
+    if 'user_id' in session:
+        user_id = session['user_id']
+        user = get_user(user_id)
+        if user:
+            user_info = {
+                'username': user.get('username', user_id),
+                'email': user.get('email', 'unknown'),
+                'usage': user.get('usage', {})
+            }
+    
+    # API status
+    api_status = get_api_status()
+    
+    # Session data
+    session_data = dict(session)
+    
+    # Database status
+    db_status = "Using fallback in-memory database" if using_fallback_db else "Using MongoDB"
+    
+    # Environment info
+    env_info = {
+        "RAILWAY_STATIC_URL": os.environ.get("RAILWAY_STATIC_URL", "Not set"),
+        "PORT": os.environ.get("PORT", "Not set"),
+        "NIXPACKS_PYTHON_VERSION": os.environ.get("NIXPACKS_PYTHON_VERSION", "Not set"),
+        "GOOGLE_CLIENT_SECRET_SET": bool(os.environ.get("GOOGLE_CLIENT_SECRET"))
+    }
+    
+    # Return debug information
+    return render_template('debug.html',
+                          user_info=user_info,
+                          session=session_data,
+                          api_status=api_status,
+                          db_status=db_status,
+                          env_info=env_info)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -389,7 +415,8 @@ def health_check():
         "timestamp": datetime.now().isoformat(),
         "db_connection": "fallback" if using_fallback_db else "mongodb",
         "api_status": get_api_status().get('status', 'unknown'),
-        "oauth_configured": bool(os.environ.get("GOOGLE_CLIENT_SECRET"))
+        "oauth_configured": bool(os.environ.get("GOOGLE_CLIENT_SECRET")),
+        "environment": os.environ.get("RAILWAY_ENVIRONMENT", "unknown")
     }
     return jsonify(status)
 
