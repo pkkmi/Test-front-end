@@ -86,6 +86,9 @@ if api_status.get('status') != 'online':
 def index():
     """Render the homepage with text processing capabilities."""
     # For the simplified home page that can handle both logged-in and guest users
+    # If user is logged in, redirect to humanize page
+    if 'user_id' in session:
+        return redirect(url_for('humanize'))
     return render_template('index.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -477,20 +480,13 @@ def bad_request(e):
 def page_not_found(e):
     """Handle Page Not Found errors."""
     app.logger.error(f"Page Not Found: {request.method} {request.path}")
-    
-    # Check if the user is logged in and the path is the root route
-    if 'user_id' in session and request.path == '/':
-        # Redirect to humanize page without showing error
-        return redirect(url_for('humanize'))
-    
-    # Check if this is an API request
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Not Found', 'message': 'The requested resource was not found'}), 404
     
     # For logged-in users, redirect to humanize without flash message
     if 'user_id' in session:
         return redirect(url_for('humanize'))
-        
+    
     # For regular users, show error message
     flash('The page you requested was not found.', 'warning')
     return redirect(url_for('index'))
