@@ -4,7 +4,7 @@ try:
 except Exception as e:
     print(f"Failed to import deploy_helper: {e}")
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, make_response
 import os
 import logging
 from datetime import datetime, timedelta
@@ -82,6 +82,21 @@ logger.info(f"\nAPI Status: {api_status.get('status', 'unknown')}")
 if api_status.get('status') != 'online':
     logger.warning(f"API is not fully operational: {api_status.get('message', 'Unknown error')}")
 
+# Add middleware for Edge browser detection
+@app.before_request
+def detect_edge_browser():
+    """Detect Microsoft Edge and set a flag in session"""
+    user_agent = request.headers.get('User-Agent', '').lower()
+    is_edge = 'edg' in user_agent or 'edge' in user_agent
+    
+    # Store in session for templates
+    session['is_edge_browser'] = is_edge
+    
+    # For the login page, redirect if the URL contains a query parameter 
+    # (common in Edge after failed redirects)
+    if request.path == '/login' and '=' in request.url and is_edge and 'user_id' in session:
+        return redirect(url_for('humanize'))
+
 @app.route('/')
 def index():
     """Render the homepage with text processing capabilities."""
@@ -100,6 +115,10 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login - redirect to Google OAuth."""
+    # If user is already logged in, redirect to humanize
+    if 'user_id' in session:
+        return redirect(url_for('humanize'))
+        
     # Add OAuth config info to session for debugging
     session['google_client_id'] = app.config['GOOGLE_CLIENT_ID']
     session['google_client_secret'] = app.config['GOOGLE_CLIENT_SECRET_SET']
@@ -115,8 +134,19 @@ def login():
     
     logger.info(f"Generated Google auth URL: {google_auth_url[:50]}...")
     
-    # Redirect to Google's OAuth page
-    return render_template('login.html', google_auth_url=google_auth_url)
+    # Special handling for Edge browser
+    is_edge = session.get('is_edge_browser', False)
+    
+    # Create response for template 
+    response = make_response(render_template('login.html', google_auth_url=google_auth_url))
+    
+    # For Edge browser, add cache-control headers
+    if is_edge:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '-1'
+    
+    return response
 
 @app.route('/callback')
 def callback():
@@ -179,20 +209,17 @@ def callback():
     # Success message
     flash(f'Welcome, {user["username"]}!', 'success')
     
-    # Redirect to humanize page
-    return redirect(url_for('humanize'))
-
-@app.route('/demo-login', methods=['GET', 'POST'])
-def demo_login():
-    """Handle demo account login."""
-    # Set session for demo user
-    session['user_id'] = 'demo'
-    session['user_email'] = 'demo@example.com'
-    session['user_picture'] = ''
-    session.permanent = True  # Make session persistent
+    # Create response for redirect
+    response = make_response(redirect(url_for('humanize')))
     
-    flash('Logged in as demo user', 'success')
-    return redirect(url_for('humanize'))
+    # For Edge browser, add cache-control headers
+    is_edge = session.get('is_edge_browser', False)
+    if is_edge:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '-1'
+    
+    return response
 
 @app.route('/logout', methods=['GET', 'POST'])
 def logout():
@@ -480,6 +507,20 @@ def bad_request(e):
 def page_not_found(e):
     """Handle Page Not Found errors."""
     app.logger.error(f"Page Not Found: {request.method} {request.path}")
+    
+    # Check if this is an Edge browser
+    is_edge = session.get('is_edge_browser', False)
+    
+    # For Edge browser, suppress the error message
+    if is_edge:
+        logger.info("Suppressing 404 error for Edge browser")
+        # If logged in, go to humanize page
+        if 'user_id' in session:
+            return redirect(url_for('humanize'))
+        # Otherwise go to home without error
+        return redirect(url_for('index'))
+        
+    # For API requests
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Not Found', 'message': 'The requested resource was not found'}), 404
     
